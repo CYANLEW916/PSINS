@@ -120,8 +120,10 @@ global glv
                 subplot(221), hold on, plot(t, avp(:,1:2)/glv.deg, strk, 'LineWidth',2), xygo('pr');
                 subplot(223), hold on, plot(t, avp(:,3)/glv.deg, strk, 'LineWidth',2), xygo('y');
                 err = avpcmp(avp(:,[1:3,end]), avp0(:,[1:3,end]), phi_mu); t = err(:,end);
-                subplot(222), hold on, plot(t, err(:,1:2)/glv.min, strk, 'LineWidth',2); xygo(phi_mu);   if phi_mu(1)=='p', mylegend('phiE','phiN'); elseif phi_mu(1)=='m', mylegend('mux','muy'); else, mylegend('dpch','drll'); end
-                subplot(224), hold on, plot(t, err(:,3)/glv.min, strk, 'LineWidth',2); xygo(phi_mu);   if phi_mu(1)=='p', mylegend('phiU'); elseif phi_mu(1)=='m', mylegend('muz'); else, mylegend('dyaw'); end
+                attLabels = attitudeErrorLabels(phi_mu);
+                for idx = 1:3
+                    plotErrorComponent(ptype, attLabels{idx}, t, err(:,idx)/glv.min, strk, 'Attitude Error', k);
+                end
             end
          case 'av',
             for k=1:kk
@@ -130,8 +132,14 @@ global glv
                 subplot(221), hold on, plot(t, avp(:,1:3)/glv.deg, strk, 'LineWidth',2), xygo('att');
                 subplot(223), hold on, plot(t, [avp(:,4:6),sqrt(avp(:,4).^2+avp(:,5).^2+avp(:,6).^2)], strk, 'LineWidth',2); xygo('V');
                 err = avpcmp(avp(:,[1:6,end]), avp0(:,[1:6,end]), phi_mu); t = err(:,end);
-                subplot(222), hold on, plot(t, err(:,1:3)/glv.min, strk, 'LineWidth',2); xygo(phi_mu);  if phi_mu(1)=='p', mylegend('phiE','phiN','phiU'); else, mylegend('mux','muy','muz'); end
-                subplot(224), hold on, plot(t, err(:,4:6), strk, 'LineWidth',2); xygo('dV'); mylegend('dVE','dVN','dVU');
+                attLabels = attitudeErrorLabels(phi_mu);
+                for idx = 1:3
+                    plotErrorComponent(ptype, attLabels{idx}, t, err(:,idx)/glv.min, strk, 'Attitude Error', k);
+                end
+                velLabels = {'dVE','dVN','dVU'};
+                for idx = 1:3
+                    plotErrorComponent(ptype, velLabels{idx}, t, err(:,idx+3), strk, 'Velocity Error', k);
+                end
             end
         case 'avp',
             for k=1:kk
@@ -141,9 +149,19 @@ global glv
                 subplot(323), hold on, plot(t, [avp(:,4:6),sqrt(avp(:,4).^2+avp(:,5).^2+avp(:,6).^2)], strk, 'LineWidth',2); xygo('V');
                 subplot(325), hold on, plot(t, [[avp(:,7)-avp0(1,7),(avp(:,8)-avp0(1,8))*cos(avp0(1,7))]*glv.Re,avp(:,9)-avp0(1,9)], strk, 'LineWidth',2); xygo('DP');
                 [err,i1,i0] = avpcmp(avp(:,[1:9,end]), avp0(:,[1:9,end]), phi_mu); t = err(:,end);  lat = avp0(i0,7);
-                subplot(322), hold on, plot(t, err(:,1:3)/glv.min, strk, 'LineWidth',2); xygo(phi_mu);  if phi_mu(1)=='p', mylegend('phiE','phiN','phiU'); else, mylegend('mux','muy','muz'); end
-                subplot(324), hold on, plot(t, err(:,4:6), strk, 'LineWidth',2); xygo('dV'); mylegend('dVE','dVN','dVU');
-                subplot(326), hold on, plot(t, [[err(:,7),err(:,8).*cos(lat)]*glv.Re,err(:,9)], strk, 'LineWidth',2); xygo('dP'); mylegend('dlat','dlon','dH');
+                attLabels = attitudeErrorLabels(phi_mu);
+                for idx = 1:3
+                    plotErrorComponent(ptype, attLabels{idx}, t, err(:,idx)/glv.min, strk, 'Attitude Error', k);
+                end
+                velLabels = {'dVE','dVN','dVU'};
+                for idx = 1:3
+                    plotErrorComponent(ptype, velLabels{idx}, t, err(:,idx+3), strk, 'Velocity Error', k);
+                end
+                posData = {err(:,7)*glv.Re, err(:,8).*cos(lat)*glv.Re, err(:,9)};
+                posLabels = {'dlat','dlon','dH'};
+                for idx = 1:3
+                    plotErrorComponent(ptype, posLabels{idx}, t, posData{idx}, strk, 'Position Error', k);
+                end
             end
         case 'avpdist',  % subplot(326), pos_err vs. distance
             avp = varargin{1};
@@ -156,10 +174,15 @@ global glv
             dist = cumsum(normv(dxyz));
             dist = interp1(pos(:,end), dist, err(:,end));
             t1 = get(gca,'xlim');
-            subplot(326), hold off, plot(dist/1000, [[err(:,7),err(:,8)*cos(avp(1,7))]*glv.Re,err(:,9)]); xygo('dist / km', 'dP');
-            x1 = (t1(1)-err(1,end))/(err(1,end)-err(end,end))*(dist(1,1)-dist(end,1))+dist(1,1);
-            x2 = (t1(end)-err(1,end))/(err(1,end)-err(end,end))*(dist(1,1)-dist(end,1))+dist(1,1);
-            xlim([x1,x2]/1000);
+            distFigData = {err(:,7)*glv.Re, err(:,8)*cos(avp(1,7))*glv.Re, err(:,9)};
+            posLabels = {'dlat','dlon','dH'};
+            for idx = 1:3
+                ax = plotErrorComponent('avpdist', posLabels{idx}, dist/1000, distFigData{idx}, 'k-', 'Position Error vs Distance', 1);
+                x1 = (t1(1)-err(1,end))/(err(1,end)-err(end,end))*(dist(1,1)-dist(end,1))+dist(1,1);
+                x2 = (t1(end)-err(1,end))/(err(1,end)-err(end,end))*(dist(1,1)-dist(end,1))+dist(1,1);
+                xlim(ax, [x1,x2]/1000);
+                xlabel(ax, labeldef('dist / km'));
+            end
         case 'vp',
             for k=1:kk
                 strk = str(k*2-1:k*2);
@@ -169,8 +192,15 @@ global glv
                 subplot(221), hold on, plot(t, avp(:,4:6), strk, 'LineWidth',2); xygo('V');
                 subplot(223), hold on, plot(t, [[avp(:,7)-avp0(1,7),(avp(:,8)-avp0(1,8))*cos(avp0(1,7))]*glv.Re,avp(:,9)-avp0(1,9)], strk, 'LineWidth',2); xygo('DP');
                 [err,i1,i0] = avpcmp(avp, avp0, 'noatt'); t = err(:,end);  lat = avp0(i0,7);
-                subplot(222), hold on, plot(t, err(:,4:6), strk, 'LineWidth',2); xygo('dV'); mylegend('dVE','dVN','dVU');
-                subplot(224), hold on, plot(t, [[err(:,7),err(:,8).*cos(lat)]*glv.Re,err(:,9)], strk, 'LineWidth',2); xygo('dP'); mylegend('dlat','dlon','dH');
+                velLabels = {'dVE','dVN','dVU'};
+                for idx = 1:3
+                    plotErrorComponent(ptype, velLabels{idx}, t, err(:,idx+3), strk, 'Velocity Error', k);
+                end
+                posData = {err(:,7)*glv.Re, err(:,8).*cos(lat)*glv.Re, err(:,9)};
+                posLabels = {'dlat','dlon','dH'};
+                for idx = 1:3
+                    plotErrorComponent(ptype, posLabels{idx}, t, posData{idx}, strk, 'Position Error', k);
+                end
             end
         case 'v',
             for k=1:kk
@@ -180,7 +210,10 @@ global glv
 %                 subplot(121), hold on, plot(t, [avp(:,4:6),sqrt(avp(:,4).^2+avp(:,5).^2+avp(:,6).^2)], strk, 'LineWidth',2); xygo('V');
                 subplot(121), hold on, plot(t, avp(:,4:6), strk, 'LineWidth',2); xygo('V');
                 err = avpcmp(avp, avp0, 'noatt'); t = err(:,end);
-                subplot(122), hold on, plot(t, err(:,4:6), strk, 'LineWidth',2); xygo('dV'); mylegend('dVE','dVN','dVU');
+                velLabels = {'dVE','dVN','dVU'};
+                for idx = 1:3
+                    plotErrorComponent(ptype, velLabels{idx}, t, err(:,idx+3), strk, 'Velocity Error', k);
+                end
             end
         case 've',
             for k=1:kk
@@ -189,7 +222,7 @@ global glv
                 if size(avp,2)<10, avp = [zeros(length(avp),3), avp]; end
                 subplot(121), hold on, plot(t, avp(:,4), strk, 'LineWidth',2); xygo('V');
                 err = avpcmp(avp, avp0, 'noatt'); t = err(:,end);
-                subplot(122), hold on, plot(t, err(:,4), strk, 'LineWidth',2); xygo('dV'); mylegend('dVE');
+                plotErrorComponent(ptype, 'dVE', t, err(:,4), strk, 'Velocity Error', k);
             end
         case 'vn',
             for k=1:kk
@@ -198,7 +231,7 @@ global glv
                 if size(avp,2)<10, avp = [zeros(length(avp),3), avp]; end
                 subplot(121), hold on, plot(t, avp(:,5), strk, 'LineWidth',2); xygo('V');
                 err = avpcmp(avp, avp0, 'noatt'); t = err(:,end);
-                subplot(122), hold on, plot(t, err(:,5), strk, 'LineWidth',2); xygo('dV'); mylegend('dVN');
+                plotErrorComponent(ptype, 'dVN', t, err(:,5), strk, 'Velocity Error', k);
             end
         case 'vu',
             for k=1:kk
@@ -207,7 +240,7 @@ global glv
                 if size(avp,2)<10, avp = [zeros(length(avp),3), avp]; end
                 subplot(121), hold on, plot(t, avp(:,6), strk, 'LineWidth',2); xygo('V');
                 err = avpcmp(avp, avp0, 'noatt'); t = err(:,end);
-                subplot(122), hold on, plot(t, err(:,6), strk, 'LineWidth',2); xygo('dV'); mylegend('dVU');
+                plotErrorComponent(ptype, 'dVU', t, err(:,6), strk, 'Velocity Error', k);
             end
         case 'vb',
             for k=1:kk
@@ -216,7 +249,10 @@ global glv
                 vb = amulvBatch(avp(:,1:3),avp(:,[4:6,end]));
                 subplot(121), hold on, plot(t, vb(:,1:3), strk, 'LineWidth',2); xygo('v^b / m/s');
                 err = avpcmp(vb, vb0, 'noatt'); t = err(:,end);
-                subplot(122), hold on, plot(t, err(:,1:3), strk, 'LineWidth',2); xygo('\deltav^b / m/s'); mylegend('dVR','dVF','dVUp');
+                vbLabels = {'dVR','dVF','dVUp'};
+                for idx = 1:3
+                    plotErrorComponent(ptype, vbLabels{idx}, t, err(:,idx), strk, 'Body Velocity Error', k);
+                end
             end
         case 'p',
             for k=1:kk
@@ -226,7 +262,11 @@ global glv
                 if size(avp,2)<10, avp = [zeros(length(avp),3), avp]; end
                 subplot(121), hold on, plot(t, [[avp(:,7)-avp0(1,7),(avp(:,8)-avp0(1,8))*cos(avp0(1,7))]*glv.Re,avp(:,9)-avp0(1,9)], strk, 'LineWidth',2); xygo('DP');
                 [err,i1,i0] = avpcmp(avp, avp0, 'noatt'); t = err(:,end);  lat = avp0(i0,7);
-                subplot(122), hold on, plot(t, [[err(:,7),err(:,8).*cos(lat)]*glv.Re,err(:,9)], strk, 'LineWidth',2); xygo('dP'); mylegend('dlat','dlon','dH');
+                posData = {err(:,7)*glv.Re, err(:,8).*cos(lat)*glv.Re, err(:,9)};
+                posLabels = {'dlat','dlon','dH'};
+                for idx = 1:3
+                    plotErrorComponent(ptype, posLabels{idx}, t, posData{idx}, strk, 'Position Error', k);
+                end
             end
         case 'ed',
             for k=1:kk
@@ -237,3 +277,78 @@ global glv
             end
     end
     
+    function ax = plotErrorComponent(ptypeStr, compLabel, xData, yData, styleSpec, titleStr, seriesIdx)
+        if nargin < 5 || isempty(styleSpec)
+            styleSpec = '-';
+        end
+        if nargin < 6
+            titleStr = '';
+        end
+        if nargin < 7
+            seriesIdx = [];
+        end
+        tag = ['avpcmpplot_', ptypeStr, '_', compLabel];
+        ax = ensureErrorAxis(tag, compLabel, titleStr);
+        if ~isempty(seriesIdx) && seriesIdx == 1 && ~isempty(get(ax, 'Children'))
+            cla(ax);
+            axes(ax);
+            xygo(compLabel);
+            if ~isempty(titleStr)
+                title(ax, labeldef(titleStr));
+            end
+        end
+        if isempty(seriesIdx)
+            plot(ax, xData, yData, styleSpec, 'LineWidth',2);
+        else
+            plot(ax, xData, yData, styleSpec, 'LineWidth',2, ...
+                'DisplayName', sprintf('Run %d', seriesIdx));
+            legend(ax, 'show');
+        end
+    end
+
+    function ax = ensureErrorAxis(tag, labelStr, titleStr)
+        fig = findobj(0, 'Type', 'figure', 'Tag', tag);
+        if isempty(fig) || ~ishandle(fig)
+            fig = figure('Name', [labelStr, ' Error'], 'Tag', tag);
+            ax = axes('Parent', fig);
+            setappdata(fig, 'mainAxes', ax);
+            axes(ax);
+            xygo(labelStr);
+            if nargin > 2 && ~isempty(titleStr)
+                title(ax, labeldef(titleStr));
+            end
+        else
+            ax = getappdata(fig, 'mainAxes');
+            if isempty(ax) || ~ishandle(ax)
+                figure(fig); clf(fig);
+                ax = axes('Parent', fig);
+                setappdata(fig, 'mainAxes', ax);
+                axes(ax);
+                xygo(labelStr);
+                if nargin > 2 && ~isempty(titleStr)
+                    title(ax, labeldef(titleStr));
+                end
+            else
+                figure(fig);
+                axes(ax);
+            end
+        end
+        hold(ax, 'on');
+        grid(ax, 'on');
+    end
+
+    function labels = attitudeErrorLabels(mode)
+        if isempty(mode)
+            mode = 'phi';
+        end
+        switch mode(1)
+            case 'm'
+                labels = {'mux','muy','muz'};
+            case 'd'
+                labels = {'dpch','drll','dyaw'};
+            otherwise
+                labels = {'phiE','phiN','phiU'};
+        end
+    end
+
+end
