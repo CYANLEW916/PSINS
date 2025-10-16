@@ -1,0 +1,218 @@
+% Trajectory generation following TL-series approach waypoints.
+% Generates IMU trajectory data driven by waypoint set TL107->TL500.
+% See also  test_SINS_trj, trjsegment, trjsimu.
+
+glvs
+FT2M = 0.3048;
+ts = 0.01;  % simulation step (s)
+legSpeeds = [210, 210, 180, 160, 150, 140]*glv.kn; % IAF 210 kn → IF 180 kn → FAP 160 kn
+accelTime = 60;            % reference time to reach the first leg speed (s)
+decelTime = 40;            % reference time to slow to taxi speed (s)
+turnRate = 3;              % standard-rate turn (deg/s)
+turnRollTime = 6;          % roll-in/out duration for coordinated turns (s)
+pitchRate = 0.5;           % pitch change rate (deg/s)
+
+% Define waypoint sequence.
+W = struct('name',{},'role',{},'lat',{},'lon',{},'alt',{},'alt_src',{},'E',{},'N',{});
+W(end+1) = makeWP('TL107','IAF', "N38°51.0'",  "E121°23.9'", 3900*FT2M, 'MSL');
+W(end+1) = makeWP('TL105','',    "N38°49.8'",  "E121°18.4'",   NaN,    'NA');
+W(end+1) = makeWP('TL103','',    "N38°54.9'",  "E121°23.1'", 3000*FT2M, 'MSL');
+W(end+1) = makeWP('TL102','IF',  "N38°57.8'",  "E121°28.8'", 3000*FT2M, 'MSL');
+W(end+1) = makeWP('TL502','FAP', "N39°00.6'",  "E121°34.1'", 3000*FT2M, 'MSL');
+W(end+1) = makeWP('TL501','MAP', "N39°01.8'",  "E121°41.6'",  500*FT2M, 'MSL');
+W(end+1) = makeWP('TL500','TCH', "N39°02.1'",  "E121°43.4'",   50*FT2M, 'TCH');
+W = fillWaypointAltitude(W);
+
+% Pre-compute leg geometry with leg-dependent target speeds.
+legs = waypointLegs(W, legSpeeds);
+
+% Initial attitude (pitch/roll/yaw), velocity and position.
+avp0 = [[0; 0; legs(1).course]; [0; 0; 0]; [W(1).lat; W(1).lon; W(1).alt]];
+
+% Build segment profile.
+seg = trjsegment([], 'init', 0);
+speedAccelRate = legSpeeds(1)/accelTime;
+speedDecelRate = legSpeeds(1)/decelTime;
+currentSpeed = 0;
+targetSpeed = legSpeeds(1);
+seg = adjustSpeed(seg, targetSpeed, currentSpeed, speedAccelRate, speedDecelRate);
+currentSpeed = targetSpeed;
+
+% Trim pitch to match first leg flight-path angle.
+currentPitch = 0;
+currentYaw = legs(1).course;
+if abs(legs(1).pitch) > 0.1*glv.deg
+    pitchTime = abs(legs(1).pitch)/glv.deg/pitchRate;
+    if legs(1).pitch > 0
+        seg = trjsegment(seg, 'headup', pitchTime, pitchRate);
+    else
+        seg = trjsegment(seg, 'headdown', pitchTime, pitchRate);
+    end
+    currentPitch = legs(1).pitch;
+end
+seg = trjsegment(seg, 'uniform', legs(1).time);
+
+for k = 2:numel(legs)
+    deltaYaw = wrapToPi(legs(k).course - currentYaw);
+    deltaYawDeg = deltaYaw/glv.deg;
+    if abs(deltaYawDeg) > 0.5
+        turnTime = abs(deltaYawDeg)/turnRate;
+        if deltaYawDeg > 0
+            seg = trjsegment(seg, 'coturnleft', turnTime, turnRate, [], turnRollTime);
+        else
+            seg = trjsegment(seg, 'coturnright', turnTime, turnRate, [], turnRollTime);
+        end
+        currentYaw = currentYaw + deltaYaw;
+    end
+
+    deltaPitch = legs(k).pitch - currentPitch;
+    deltaPitchDeg = deltaPitch/glv.deg;
+    if abs(deltaPitchDeg) > 0.1
+        pitchTime = abs(deltaPitchDeg)/pitchRate;
+        if deltaPitchDeg > 0
+            seg = trjsegment(seg, 'headup', pitchTime, pitchRate);
+        else
+            seg = trjsegment(seg, 'headdown', pitchTime, pitchRate);
+        end
+        currentPitch = currentPitch + deltaPitch;
+    end
+
+    targetSpeed = legs(k).speed;
+    seg = adjustSpeed(seg, targetSpeed, currentSpeed, speedAccelRate, speedDecelRate);
+    currentSpeed = targetSpeed;
+
+    seg = trjsegment(seg, 'uniform', legs(k).time);
+end
+
+% Return to level flight and reduce speed.
+if abs(currentPitch) > 0.1*glv.deg
+    pitchTime = abs(currentPitch)/glv.deg/pitchRate;
+    if currentPitch > 0
+        seg = trjsegment(seg, 'headdown', pitchTime, pitchRate);
+    else
+        seg = trjsegment(seg, 'headup', pitchTime, pitchRate);
+    end
+end
+seg = adjustSpeed(seg, 0, currentSpeed, speedAccelRate, speedDecelRate);
+seg = trjsegment(seg, 'uniform', 20);
+
+% Generate trajectory, save and display.
+trj = trjsimu(avp0, seg.wat, ts, 1);
+trjfile('trj_TL_approach.mat', trj);
+
+fprintf('\nTL approach leg summary (speed %.1f -> %.1f m/s):\n', legSpeeds(1), legSpeeds(end));
+for k = 1:numel(legs)
+    fprintf('  %s: course %6.2f deg, pitch %6.2f deg, horiz %7.1f m, vert %+6.1f m, time %6.1f s, speed %6.1f m/s\n', ...
+        legs(k).label, legs(k).course/glv.deg, legs(k).pitch/glv.deg, ...
+        legs(k).horizontal, legs(k).vertical, legs(k).time, legs(k).speed);
+end
+
+insplot(trj.avp);
+imuplot(trj.imu);
+
+%% helper functions
+function wp = makeWP(name, role, lat_dms, lon_dms, alt, alt_src)
+    wp.name = name;
+    wp.role = role;
+    wp.lat = dmsInputToRad(lat_dms);
+    wp.lon = dmsInputToRad(lon_dms);
+    wp.alt = alt;
+    wp.alt_src = alt_src;
+    wp.E = NaN; wp.N = NaN;
+end
+
+function W = fillWaypointAltitude(W)
+    alts = [W.alt]';
+    idx = find(~isnan(alts));
+    if numel(idx) >= 2
+        alts = interp1(idx, alts(idx), 1:numel(W), 'linear', 'extrap')';
+    else
+        alts(isnan(alts)) = alts(idx);
+    end
+    for k = 1:numel(W)
+        W(k).alt = alts(k);
+    end
+end
+
+function legs = waypointLegs(W, speed)
+    global glv
+    n = numel(W);
+    legs = repmat(struct('label','', 'course',0, 'pitch',0, ...
+        'horizontal',0, 'vertical',0, 'track',0, 'time',0, 'speed',0), n-1, 1);
+    if isscalar(speed)
+        speeds = repmat(speed, n-1, 1);
+    else
+        speeds = speed(:);
+        if numel(speeds) ~= n-1
+            error('Speed profile must have %d entries.', n-1);
+        end
+    end
+    for k = 1:n-1
+        pos1 = [W(k).lat, W(k).lon, W(k).alt];
+        pos2 = [W(k+1).lat, W(k+1).lon, W(k+1).alt];
+        dxyz = pos2dxyz([pos1; pos2], pos1');
+        enu = dxyz(end,1:3);
+        horizontal = hypot(enu(1), enu(2));
+        vertical = enu(3);
+        course = atan2(enu(1), enu(2));
+        pitch = atan2(vertical, horizontal);
+        track = sqrt(horizontal^2 + vertical^2);
+        % Use the requested ground speed to size the segment duration so that
+        % horizontal motion follows the target profile; vertical rate is then
+        % induced by the segment pitch.
+        legSpeed = speeds(k);
+        time = horizontal / legSpeed;
+        legs(k).label = sprintf('%s -> %s', W(k).name, W(k+1).name);
+        legs(k).course = wrapToPi(course);
+        legs(k).pitch = pitch;
+        legs(k).horizontal = horizontal;
+        legs(k).vertical = vertical;
+        legs(k).track = track;
+        legs(k).time = time;
+        legs(k).speed = legSpeed;
+    end
+end
+
+function ang = wrapToPi(ang)
+    ang = mod(ang + pi, 2*pi) - pi;
+end
+
+function rad = dmsInputToRad(val)
+    global glv
+    if isnumeric(val)
+        arr = val(:)';
+    else
+        str = upper(strtrim(char(val)));
+        dir = 1;
+        if ~isempty(str)
+            switch str(1)
+                case {'S','W'}
+                    dir = -1;
+                case {'N','E'}
+                    dir = 1;
+            end
+        end
+        str = regexprep(str, '^[NSEW]\s*', '');
+        nums = regexp(str, '[-\d\.]+', 'match');
+        if isempty(nums)
+            error('Unable to parse DMS value "%s".', val);
+        end
+        arr = cellfun(@str2double, nums);
+    end
+    arr = [arr, zeros(1,3-numel(arr))];
+    deg = arr(1);
+    minutes = arr(2);
+    seconds = arr(3);
+    rad = dir*(deg + minutes/60 + seconds/3600)*glv.deg;
+end
+
+function seg = adjustSpeed(seg, targetSpeed, currentSpeed, accelRate, decelRate)
+    deltaV = targetSpeed - currentSpeed;
+    if deltaV > 1e-3
+        lasting = deltaV / accelRate;
+        seg = trjsegment(seg, 'accelerate', lasting, [], accelRate);
+    elseif deltaV < -1e-3
+        lasting = -deltaV / decelRate;
+        seg = trjsegment(seg, 'deaccelerate', lasting, [], decelRate);
+    end
+end
