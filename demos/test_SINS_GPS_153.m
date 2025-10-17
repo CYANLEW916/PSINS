@@ -41,3 +41,26 @@ insplot(avp);
 avperr = avpcmpplot(trj.avp, avp);
 kfplot(xkpk, avperr, imuerr);
 
+% Actual Navigation Performance (ANP) estimation and RNP comparison
+global glv
+posVar = xkpk(:,15+(7:9));                 % covariance of [dlat, dlon, dhgt]
+sigmaLat = sqrt(posVar(:,1));               % latitude 1-sigma in rad
+sigmaLon = sqrt(posVar(:,2));               % longitude 1-sigma in rad
+[RMh, clRNh] = RMRN(avp(:,7:9));            % meridian & transverse radii (m)
+sigmaNorth = RMh .* sigmaLat;               % convert to metres
+sigmaEast = clRNh .* sigmaLon;
+kh95 = sqrt(5.9915);                        % sqrt(chi2inv(0.95,2)) for 95% circle
+anp = kh95 .* sqrt(sigmaNorth.^2 + sigmaEast.^2);
+rnp = 0.1 * glv.nm * ones(size(anp));       % RNP AR 0.1 requirement in metres
+
+myfigure('ANP_vs_RNP');
+plot(avp(:,end), anp, 'b', avp(:,end), rnp, 'r--', 'LineWidth', 1.5);
+hold on;
+violations = anp > rnp;
+if any(violations)
+    plot(avp(violations,end), anp(violations), 'ro', 'MarkerFaceColor', 'r');
+end
+grid on;  xygo('Time / s', 'Horizontal performance / m');
+legend('ANP (95%)','RNP AR 0.1','Location','best');
+
+
