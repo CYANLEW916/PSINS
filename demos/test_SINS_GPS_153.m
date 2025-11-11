@@ -6,18 +6,19 @@
 % 17/06/2011, updated 15/11/2024
 glvs
 psinstypedef(153);
-trj = trjfile('trj10ms.mat');
+trj = trjfile('trj_TL_approach.mat');
 
 % initial settings
 [nn, ts, nts] = nnts(2, trj.ts);
-imuerr = imuerrset(0.1, 300, 0.005, 15);
+imuerr = imuerrset(0.5, 200, 0.2, 10);
 imu = imuadderr(trj.imu, imuerr);
 davp0 = avperrset([0.5;-0.5;20], 0.1, [1;1;3]);
 insAll = insinit(avpadderr(trj.avp0,davp0), ts);
 insFD  = insinit(avpadderr(trj.avp0,davp0), ts);
 
 % Kalman filters
-rk = poserrset([1;1;3]);
+gpsMeasStdENU = [4; 4; 7];               % GPS measurement 1-sigma in metres (N, E, U)
+rk = poserrset(gpsMeasStdENU);
 kfAll = kfinit(insAll, davp0, imuerr, rk);
 kfFD  = kfinit(insFD,  davp0, imuerr, rk);
 commonPmin = [avperrset(0.01,1e-4,0.1); gabias(1e-3, [1,10])].^2;
@@ -40,7 +41,7 @@ faultSpikes = [
     420,-180,  220, -35;
 ];
 
-gpsNoiseStd = [4; 4; 7];
+gpsNoiseStd = poserrset(gpsMeasStdENU);   % convert to latitude/longitude radians & height metres
 
 len = length(imu);
 rows = fix(len/nn);
