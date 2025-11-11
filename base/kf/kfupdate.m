@@ -86,20 +86,88 @@ function kf = kfupdate(kf, yk, TimeMeasBoth)
             if numel(thr)~=1
                 thr = thr(1);
             end
-            if kf.fd.nis > thr
-                kf.fd.isOutlier = true(kf.m,1);
-                faultIdx = (1:kf.m)';
+            if kf.fd.slidingEnable
+                % Delayed-state sliding residual test to expose incipient faults.
+                % Use an m-step-old global estimate so soft faults that slowly bias
+                % the current prediction still yield a large delayed residual.
+                lag = max(1, round(kf.fd.stateLag));
+                histCols = size(kf.fd.stateHistory,2);
+                if histCols < lag
+                    needed = lag - histCols + 1;
+                    kf.fd.stateHistory = [kf.fd.stateHistory, repmat(kf.fd.stateHistory(:,end), 1, needed)];
+                    histCols = size(kf.fd.stateHistory,2);
+                end
+                if ~isfield(kf.fd, 'historyValid')
+                    kf.fd.historyValid = min(histCols, lag+1);
+                end
+                lagIndex = min(lag, max(1, kf.fd.historyValid-1));
+                xClean = kf.fd.stateHistory(:, lagIndex);
+                cleanResidual = yk - kf.Hk*xClean;
+                try
+                    whitenedClean = L\cleanResidual;
+                catch
+                    whitenedClean = cleanResidual./sqrt(diagPy);
+                end
+                if size(kf.fd.slidingBuffer,1)~=kf.m || size(kf.fd.slidingBuffer,2)~=max(1,round(kf.fd.slidingWindow))
+                    kf.fd.slidingBuffer = zeros(kf.m, max(1,round(kf.fd.slidingWindow)));
+                    kf.fd.slidingIndex = 1;
+                    kf.fd.historyCount = 0;
+                end
+                window = size(kf.fd.slidingBuffer,2);
+                idx = kf.fd.slidingIndex;
+                kf.fd.slidingBuffer(:,idx) = real(whitenedClean.^2);
+                idx = idx + 1;
+                if idx>window, idx = 1; end
+                kf.fd.slidingIndex = idx;
+                kf.fd.historyCount = min(kf.fd.historyCount+1, window);
+                if kf.fd.historyCount>0
+                    kf.fd.slidingStat = mean(kf.fd.slidingBuffer(:,1:kf.fd.historyCount),2);
+                else
+                    kf.fd.slidingStat = zeros(kf.m,1);
+                end
+                kf.fd.slidingNis = real(whitenedClean.^2);
+                thrSliding = kf.fd.slidingThreshold;
+                if isempty(thrSliding), thrSliding = inf; end
+                if numel(thrSliding)==1
+                    thrSliding = thrSliding*ones(kf.m,1);
+                end
+                kf.fd.slidingOutlierIdx = kf.fd.slidingStat > thrSliding(:);
+                kf.fd.slidingTriggered = any(kf.fd.slidingOutlierIdx);
+            else
+                kf.fd.slidingStat = zeros(kf.m,1);
+                kf.fd.slidingTriggered = false;
+                kf.fd.slidingOutlierIdx = false(kf.m,1);
+                kf.fd.slidingNis = zeros(kf.m,1);
+                if isfield(kf.fd, 'slidingBuffer') && ~isempty(kf.fd.slidingBuffer)
+                    kf.fd.slidingBuffer(:) = 0;
+                end
+                kf.fd.historyCount = 0;
+                kf.fd.slidingIndex = 1;
+            end
+            instantOutlier = kf.fd.nis > thr;
+            combinedIdx = false(kf.m,1);
+            if instantOutlier
+                combinedIdx(:) = true;
+            end
+            if kf.fd.slidingTriggered
+                combinedIdx = combinedIdx | kf.fd.slidingOutlierIdx;
+            end
+            kf.fd.isOutlier = combinedIdx;
+            if any(combinedIdx)
+                faultIdx = unique([faultIdx; find(combinedIdx)]);
                 if kf.fd.holdTime>0
                     kf.measstop(faultIdx) = max(kf.measstop(faultIdx), kf.fd.holdTime);
                 end
-            else
-                kf.fd.isOutlier = false(kf.m,1);
             end
         elseif isfield(kf, 'fd')
             kf.fd.whitenedResidual = zeros(kf.m,1);
             kf.fd.nis = 0;
             kf.fd.isOutlier = false(kf.m,1);
             kf.fd.residual = kf.rk;
+            kf.fd.slidingStat = zeros(kf.m,1);
+            kf.fd.slidingTriggered = false;
+            kf.fd.slidingOutlierIdx = false(kf.m,1);
+            kf.fd.slidingNis = zeros(kf.m,1);
         end
         if isfield(kf, 'fd')
             kf.fd.inDwell = kf.measstop > 0;
@@ -135,5 +203,18 @@ function kf = kfupdate(kf, yk, TimeMeasBoth)
                     kf.Pxk(:,k) = kf.Pxk(:,k)*ratio;  kf.Pxk(k,:) = kf.Pxk(k,:)*ratio;
                 end
             end
+        end
+        if isfield(kf, 'fd') && isfield(kf.fd, 'stateHistory')
+            % Refresh the state history with the latest fused estimate so the
+            % sliding detector can access an older, less-contaminated state.
+            lagCols = kf.fd.stateLag + 1;
+            if size(kf.fd.stateHistory,2) < lagCols
+                kf.fd.stateHistory(:,end+1:lagCols) = repmat(kf.xk,1,lagCols-size(kf.fd.stateHistory,2));
+            end
+            kf.fd.stateHistory = [kf.xk, kf.fd.stateHistory(:,1:end-1)];
+            if ~isfield(kf.fd, 'historyValid')
+                kf.fd.historyValid = min(size(kf.fd.stateHistory,2), lagCols);
+            end
+            kf.fd.historyValid = min(kf.fd.historyValid+1, size(kf.fd.stateHistory,2));
         end
     end
