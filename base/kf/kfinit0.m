@@ -30,6 +30,36 @@ function kf = kfinit0(kf, nts)
     if ~isfield(kf, 'pconstrain'),  kf.pconstrain = 0;  end
     kf.Pmax = (diag(kf.Pxk)+1)*1.0e10;
     kf.Pmin = kf.Pmax*0;
+    if ~isfield(kf, 'fd') || ~isstruct(kf.fd)
+        kf.fd = struct();
+    end
+    if ~isfield(kf.fd, 'enable'), kf.fd.enable = 0; end
+    if ~isfield(kf.fd, 'chi2Threshold'), kf.fd.chi2Threshold = inf; end
+    if ~isfield(kf.fd, 'holdTime'), kf.fd.holdTime = 0; end
+    if ~isfield(kf.fd, 'isOutlier'), kf.fd.isOutlier = false(kf.m,1); end
+    if ~isfield(kf.fd, 'whitenedResidual'), kf.fd.whitenedResidual = zeros(kf.m,1); end
+    if ~isfield(kf.fd, 'nis'), kf.fd.nis = 0; end
+    if ~isfield(kf.fd, 'inDwell'), kf.fd.inDwell = false(kf.m,1); end
+    if ~isfield(kf.fd, 'delaySteps'), kf.fd.delaySteps = 0; end
+    if ~isfield(kf.fd, 'softWindow') || kf.fd.softWindow<1
+        if kf.fd.delaySteps>0
+            kf.fd.softWindow = kf.fd.delaySteps;
+        else
+            kf.fd.softWindow = 1;
+        end
+    end
+    if ~isfield(kf.fd, 'softThreshold'), kf.fd.softThreshold = inf; end
+    if ~isfield(kf.fd, 'softComponentThreshold'), kf.fd.softComponentThreshold = inf; end
+    if ~isfield(kf.fd, 'softExceeded'), kf.fd.softExceeded = false; end
+    if ~isfield(kf.fd, 'softComponentExceeded'), kf.fd.softComponentExceeded = false(kf.m,1); end
+    if ~isfield(kf.fd, 'delayedResidual'), kf.fd.delayedResidual = zeros(kf.m,1); end
+    if ~isfield(kf.fd, 'delayedWhitened'), kf.fd.delayedWhitened = zeros(kf.m,1); end
+    if ~isfield(kf.fd, 'delayedNIS'), kf.fd.delayedNIS = 0; end
+    if ~isfield(kf.fd, 'slidingStatistic'), kf.fd.slidingStatistic = 0; end
+    if ~isfield(kf.fd, 'slidingBuffer'), kf.fd.slidingBuffer = []; end
+    if ~isfield(kf.fd, 'stateHistory'), kf.fd.stateHistory = {}; end
+    if ~isfield(kf.fd, 'transitionHistory'), kf.fd.transitionHistory = {}; end
+    if ~isfield(kf.fd, 'historyMargin') || kf.fd.historyMargin<1, kf.fd.historyMargin = 5; end
 %     kf.Pykk_1 = kf.Hk*kf.Pxk*kf.Hk'+kf.Rk;
     kf.Pykk_1 = kf.Hk*kf.Pxk*kf.Hk'+0;
     kf.xfb = zeros(kf.n, 1);

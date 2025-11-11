@@ -34,17 +34,23 @@ function kf = kfupdate(kf, yk, TimeMeasBoth)
     end
     
     if TimeMeasBoth=='T'            % Time Updating
-        kf.xk = kf.Phikk_1*kf.xk;    
+        kf.xk = kf.Phikk_1*kf.xk;
         kf.Pxk = kf.Phikk_1*kf.Pxk*kf.Phikk_1' + kf.Gammak*kf.Qk*kf.Gammak';
         kf.measstop = kf.measstop - kf.nts;  kf.measlost = kf.measlost + kf.nts;
+        if isfield(kf, 'fd')
+            kf = fdStoreTransition(kf);
+        end
     else
         if TimeMeasBoth=='M'        % Meas Updating
-            kf.xkk_1 = kf.xk;    
-            kf.Pxkk_1 = kf.Pxk; 
+            kf.xkk_1 = kf.xk;
+            kf.Pxkk_1 = kf.Pxk;
         elseif TimeMeasBoth=='B'    % Time & Meas Updating
-            kf.xkk_1 = kf.Phikk_1*kf.xk;    
+            kf.xkk_1 = kf.Phikk_1*kf.xk;
             kf.Pxkk_1 = kf.Phikk_1*kf.Pxk*kf.Phikk_1' + kf.Gammak*kf.Qk*kf.Gammak';
             kf.measstop = kf.measstop - kf.nts;  kf.measlost = kf.measlost + kf.nts;
+            if isfield(kf, 'fd')
+                kf = fdStoreTransition(kf);
+            end
         else
             error('TimeMeasBoth input error!');
         end
@@ -53,6 +59,7 @@ function kf = kfupdate(kf, yk, TimeMeasBoth)
         kf.ykk_1 = kf.Hk*kf.xkk_1;
         kf.rk = yk-kf.ykk_1;
         idxbad = [];  % bad measurement index
+        faultIdx = [];
         if kf.adaptive==1  % for adaptive KF, make sure Rk is diag 24/04/2015
             for k=1:kf.m
                 if yk(k)>1e10, idxbad=[idxbad;k]; continue; end  % 16/12/2019
@@ -65,8 +72,83 @@ function kf = kfupdate(kf, yk, TimeMeasBoth)
             kf.beta = kf.beta/(kf.beta+kf.b);
         end
         kf.Pykk_1 = kf.Py0 + kf.Rk;
+        if isfield(kf, 'fd')
+            kf.fd.inDwell = kf.measstop > 0;
+        end
+        if isfield(kf, 'fd') && kf.fd.enable
+            kf.fd = fdInitHistory(kf.fd, kf);
+            diagPy = diag(kf.Pykk_1);
+            diagPy(diagPy<=0) = eps;
+            try
+                L = chol(kf.Pykk_1, 'lower');
+                whitened = L\kf.rk;
+            catch
+                whitened = kf.rk./sqrt(diagPy);
+            end
+            kf.fd.whitenedResidual = whitened;
+            kf.fd.nis = real(sum(whitened.^2));
+            kf.fd.residual = kf.rk;
+            [yDelayed, PyDelayed, kf.fd] = fdDelayedPrediction(kf, yk);
+            rkDelayed = yk - yDelayed;
+            diagPyDelayed = diag(PyDelayed);
+            diagPyDelayed(diagPyDelayed<=0) = eps;
+            try
+                Ld = chol(PyDelayed, 'lower');
+                whitenedDelayed = Ld\rkDelayed;
+            catch
+                whitenedDelayed = rkDelayed./sqrt(diagPyDelayed);
+            end
+            kf.fd.delayedResidual = rkDelayed;
+            kf.fd.delayedWhitened = whitenedDelayed;
+            kf.fd.delayedNIS = real(sum(whitenedDelayed.^2));
+            window = max(1, round(kf.fd.softWindow));
+            kf.fd.slidingBuffer = [kf.fd.slidingBuffer; kf.fd.delayedNIS];
+            if length(kf.fd.slidingBuffer)>window
+                kf.fd.slidingBuffer(1:length(kf.fd.slidingBuffer)-window) = [];
+            end
+            kf.fd.slidingStatistic = mean(kf.fd.slidingBuffer);
+            kf.fd.softExceeded = kf.fd.slidingStatistic > kf.fd.softThreshold;
+            compThresh = kf.fd.softComponentThreshold;
+            if numel(compThresh)==1
+                compThresh = repmat(compThresh, kf.m, 1);
+            end
+            kf.fd.softComponentExceeded = abs(whitenedDelayed) > sqrt(compThresh);
+            thr = kf.fd.chi2Threshold;
+            if isempty(thr), thr = inf; end
+            if numel(thr)~=1
+                thr = thr(1);
+            end
+            faultIdx = [];
+            if kf.fd.nis > thr
+                faultIdx = (1:kf.m)';
+            end
+            if kf.fd.softExceeded
+                faultIdx = union(faultIdx, (1:kf.m)');
+            end
+            if any(kf.fd.softComponentExceeded)
+                faultIdx = union(faultIdx, find(kf.fd.softComponentExceeded));
+            end
+            if ~isempty(faultIdx)
+                outlierMask = false(kf.m,1);
+                outlierMask(faultIdx) = true;
+                kf.fd.isOutlier = outlierMask;
+                if kf.fd.holdTime>0
+                    kf.measstop(faultIdx) = max(kf.measstop(faultIdx), kf.fd.holdTime);
+                end
+            else
+                kf.fd.isOutlier = false(kf.m,1);
+            end
+        elseif isfield(kf, 'fd')
+            kf.fd.whitenedResidual = zeros(kf.m,1);
+            kf.fd.nis = 0;
+            kf.fd.isOutlier = false(kf.m,1);
+            kf.fd.residual = kf.rk;
+        end
+        if isfield(kf, 'fd')
+            kf.fd.inDwell = kf.measstop > 0;
+        end
         kf.Kk = kf.Pxykk_1*invbc(kf.Pykk_1); % kf.Kk = kf.Pxykk_1*kf.Pykk_1^-1;
-        nomeas = union(find(kf.measstop>0),[kf.measmask;idxbad]);    % no measurement update index, 20/11/2022
+        nomeas = union(find(kf.measstop>0),[kf.measmask;idxbad;faultIdx]);    % no measurement update index, 20/11/2022
         hasmeas = (1:kf.m)';
         if ~isempty(nomeas), kf.Kk(:,nomeas)=0; hasmeas(nomeas)=[]; end
         if ~isempty(hasmeas), kf.measlog=bitor(kf.measlog,sum(2.^(hasmeas-1))); kf.measlost(hasmeas)=0; end
@@ -97,4 +179,112 @@ function kf = kfupdate(kf, yk, TimeMeasBoth)
                 end
             end
         end
+        if isfield(kf, 'fd') && kf.fd.enable
+            kf = fdStoreState(kf);
+        end
     end
+end
+
+function fd = fdInitHistory(fd, kf)
+% Ensure history buffers exist before running the delayed residual test.
+    if ~isfield(fd, 'delaySteps') || fd.delaySteps<=0
+        return;
+    end
+    if ~isfield(fd, 'historyMargin') || fd.historyMargin<1
+        fd.historyMargin = 5;
+    end
+    if ~isfield(fd, 'stateHistory') || isempty(fd.stateHistory)
+        if isfield(kf, 'Pxk')
+            fd.stateHistory = {struct('x', kf.xk, 'P', kf.Pxk)};
+        else
+            fd.stateHistory = {struct('x', kf.xkk_1, 'P', kf.Pxkk_1)};
+        end
+    end
+    if ~isfield(fd, 'transitionHistory') || isempty(fd.transitionHistory)
+        fd.transitionHistory = {};
+    end
+    if ~isfield(fd, 'slidingBuffer') || isempty(fd.slidingBuffer)
+        fd.slidingBuffer = [];
+    end
+end
+
+function kf = fdStoreTransition(kf)
+% Store state transition for delayed-state propagation.
+    if ~isfield(kf, 'fd') || ~kf.fd.enable || kf.fd.delaySteps<=0
+        return;
+    end
+    fd = kf.fd;
+    entry.Phi = kf.Phikk_1;
+    entry.Qd  = kf.Gammak*kf.Qk*kf.Gammak';
+    if ~isfield(fd, 'transitionHistory') || isempty(fd.transitionHistory)
+        fd.transitionHistory = {entry};
+    else
+        fd.transitionHistory{end+1} = entry;
+    end
+    maxTrans = fd.delaySteps + fd.historyMargin;
+    while numel(fd.transitionHistory) > maxTrans
+        fd.transitionHistory(1) = [];
+        if isfield(fd, 'stateHistory') && numel(fd.stateHistory) > fd.delaySteps
+            fd.stateHistory(1) = [];
+        end
+    end
+    kf.fd = fd;
+end
+
+function [yDelayed, PyDelayed, fd] = fdDelayedPrediction(kf, yk)
+% Predict measurement using delayed global estimate for soft-fault detection.
+    fd = kf.fd;
+    delaySteps = round(fd.delaySteps);
+    if delaySteps<=0
+        yDelayed = kf.ykk_1;
+        PyDelayed = kf.Hk*kf.Pxkk_1*kf.Hk' + kf.Rk;
+        return;
+    end
+    if ~isfield(fd, 'stateHistory') || isempty(fd.stateHistory) || ...
+            ~isfield(fd, 'transitionHistory')
+        fd = fdInitHistory(fd, kf);
+    end
+    numStates = numel(fd.stateHistory);
+    numTrans  = numel(fd.transitionHistory);
+    if numStates < delaySteps || numTrans < delaySteps
+        yDelayed = kf.ykk_1;
+        PyDelayed = kf.Hk*kf.Pxkk_1*kf.Hk' + kf.Rk;
+        return;
+    end
+    stateIdx = numStates - delaySteps + 1;
+    baseState = fd.stateHistory{stateIdx};
+    transStart = max(1, numTrans - delaySteps + 1);
+    x = baseState.x;
+    P = baseState.P;
+    for idx = transStart:numTrans
+        trans = fd.transitionHistory{idx};
+        x = trans.Phi * x;
+        P = trans.Phi * P * trans.Phi' + trans.Qd;
+    end
+    yDelayed = kf.Hk * x;
+    PyDelayed = kf.Hk * P * kf.Hk' + kf.Rk;
+    fd.cachedDelayedState = struct('x', x, 'P', P);
+end
+
+function kf = fdStoreState(kf)
+% Save posterior state for use as the clean delayed estimate.
+    if ~isfield(kf, 'fd') || ~kf.fd.enable || kf.fd.delaySteps<=0
+        return;
+    end
+    fd = kf.fd;
+    stateEntry.x = kf.xk;
+    stateEntry.P = kf.Pxk;
+    if ~isfield(fd, 'stateHistory') || isempty(fd.stateHistory)
+        fd.stateHistory = {stateEntry};
+    else
+        fd.stateHistory{end+1} = stateEntry;
+    end
+    maxStates = fd.delaySteps + fd.historyMargin;
+    while numel(fd.stateHistory) > maxStates
+        fd.stateHistory(1) = [];
+        if isfield(fd, 'transitionHistory') && ~isempty(fd.transitionHistory)
+            fd.transitionHistory(1) = [];
+        end
+    end
+    kf.fd = fd;
+end
