@@ -460,7 +460,17 @@ global glv
         end
         statsEntry = struct('mean', meanVal, 'rms', rmsVal, 'unit', unitStr);
         if numel(errStats.(group)) < runIdx || isempty(errStats.(group))
-            errStats.(group)(runIdx) = struct();
+            if isempty(errStats.(group))
+                template = struct();
+            else
+                templateFields = fieldnames(errStats.(group)(1));
+                if isempty(templateFields)
+                    template = struct();
+                else
+                    template = cell2struct(cell(size(templateFields)), templateFields, 1);
+                end
+            end
+            errStats.(group)(runIdx) = template;
         end
         errStats.(group)(runIdx).(component) = statsEntry;
         if isempty(unitStr)
