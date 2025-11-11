@@ -129,7 +129,7 @@ for idx = 1:3
     if idx==3
         xlabel('Time / s');
     end
-    legend('All measurements','FD-enabled','Location','best');
+    legend('FD-disabled','FD-enabled','Location','best');
 end
 
 % residual-based fault detection metrics
