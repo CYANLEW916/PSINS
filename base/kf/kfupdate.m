@@ -115,7 +115,8 @@ function kf = kfupdate(kf, yk, TimeMeasBoth)
                 end
                 window = size(kf.fd.slidingBuffer,2);
                 idx = kf.fd.slidingIndex;
-                kf.fd.slidingBuffer(:,idx) = real(whitenedClean.^2);
+                whitenedSq = real(whitenedClean.^2);
+                kf.fd.slidingBuffer(:,idx) = whitenedSq;
                 idx = idx + 1;
                 if idx>window, idx = 1; end
                 kf.fd.slidingIndex = idx;
@@ -125,19 +126,45 @@ function kf = kfupdate(kf, yk, TimeMeasBoth)
                 else
                     kf.fd.slidingStat = zeros(kf.m,1);
                 end
-                kf.fd.slidingNis = real(whitenedClean.^2);
+                kf.fd.slidingNis = whitenedSq;
                 thrSliding = kf.fd.slidingThreshold;
                 if isempty(thrSliding), thrSliding = inf; end
                 if numel(thrSliding)==1
                     thrSliding = thrSliding*ones(kf.m,1);
                 end
                 kf.fd.slidingOutlierIdx = kf.fd.slidingStat > thrSliding(:);
-                kf.fd.slidingTriggered = any(kf.fd.slidingOutlierIdx);
+                ref = kf.fd.slidingReference;
+                if isempty(ref), ref = 1; end
+                if numel(ref)==1
+                    ref = ref*ones(kf.m,1);
+                end
+                decay = 0;
+                if isfield(kf.fd, 'slidingCusumDecay') && ~isempty(kf.fd.slidingCusumDecay)
+                    decay = max(0, min(1, kf.fd.slidingCusumDecay));
+                end
+                excess = whitenedSq - ref(:);
+                if ~isfield(kf.fd, 'slidingCusum') || any(size(kf.fd.slidingCusum) ~= [kf.m,1])
+                    kf.fd.slidingCusum = zeros(kf.m,1);
+                end
+                kf.fd.slidingCusum = max(0, (1-decay).*kf.fd.slidingCusum + excess);
+                thrCusum = kf.fd.slidingCusumThreshold;
+                if isempty(thrCusum), thrCusum = inf; end
+                if numel(thrCusum)==1
+                    thrCusum = thrCusum*ones(kf.m,1);
+                end
+                kf.fd.slidingCusumTriggered = kf.fd.slidingCusum > thrCusum(:);
+                kf.fd.slidingTriggered = any(kf.fd.slidingOutlierIdx | kf.fd.slidingCusumTriggered);
             else
                 kf.fd.slidingStat = zeros(kf.m,1);
                 kf.fd.slidingTriggered = false;
                 kf.fd.slidingOutlierIdx = false(kf.m,1);
                 kf.fd.slidingNis = zeros(kf.m,1);
+                if isfield(kf.fd, 'slidingCusum')
+                    kf.fd.slidingCusum(:) = 0;
+                end
+                if isfield(kf.fd, 'slidingCusumTriggered')
+                    kf.fd.slidingCusumTriggered(:) = false;
+                end
                 if isfield(kf.fd, 'slidingBuffer') && ~isempty(kf.fd.slidingBuffer)
                     kf.fd.slidingBuffer(:) = 0;
                 end
@@ -150,7 +177,7 @@ function kf = kfupdate(kf, yk, TimeMeasBoth)
                 combinedIdx(:) = true;
             end
             if kf.fd.slidingTriggered
-                combinedIdx = combinedIdx | kf.fd.slidingOutlierIdx;
+                combinedIdx = combinedIdx | kf.fd.slidingOutlierIdx | kf.fd.slidingCusumTriggered;
             end
             kf.fd.isOutlier = combinedIdx;
             if any(combinedIdx)
@@ -168,6 +195,12 @@ function kf = kfupdate(kf, yk, TimeMeasBoth)
             kf.fd.slidingTriggered = false;
             kf.fd.slidingOutlierIdx = false(kf.m,1);
             kf.fd.slidingNis = zeros(kf.m,1);
+            if isfield(kf.fd, 'slidingCusum')
+                kf.fd.slidingCusum(:) = 0;
+            end
+            if isfield(kf.fd, 'slidingCusumTriggered')
+                kf.fd.slidingCusumTriggered(:) = false;
+            end
         end
         if isfield(kf, 'fd')
             kf.fd.inDwell = kf.measstop > 0;
