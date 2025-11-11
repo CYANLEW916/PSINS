@@ -91,15 +91,21 @@ kfplot(xkpkFD, avperrFD, imuerr);
 
 % Position error analysis
 global glv
-tMeas = avpAll(:,end);
-truthInterp = avpinterp1(trj.avp, tMeas);
-[RMh, clRNh] = RMRN(truthInterp(:,7:9));
-posErrAll = [(avpAll(:,7)-truthInterp(:,7)).*RMh, ...
-             (avpAll(:,8)-truthInterp(:,8)).*clRNh, ...
-             (avpAll(:,9)-truthInterp(:,9))];
-posErrFD  = [(avpFD(:,7)-truthInterp(:,7)).*RMh, ...
-             (avpFD(:,8)-truthInterp(:,8)).*clRNh, ...
-             (avpFD(:,9)-truthInterp(:,9))];
+tAll = avpAll(:,end);
+tFD  = avpFD(:,end);
+tMeas = tFD;                                  % time tags for logged measurement metrics
+truthAll = avpinterp1(trj.avp, tAll);
+truthFD  = avpinterp1(trj.avp, tFD);
+[RMhAll, clRNhAll] = RMRN(truthAll(:,7:9));
+[RMhFDTrue, clRNhFDTrue] = RMRN(truthFD(:,7:9));
+posErrAll = [(avpAll(:,7)-truthAll(:,7)).*RMhAll, ...
+             (avpAll(:,8)-truthAll(:,8)).*clRNhAll, ...
+             (avpAll(:,9)-truthAll(:,9))];
+posErrFD  = [(avpFD(:,7)-truthFD(:,7)).*RMhFDTrue, ...
+             (avpFD(:,8)-truthFD(:,8)).*clRNhFDTrue, ...
+             (avpFD(:,9)-truthFD(:,9))];
+horErrAll = sqrt(posErrAll(:,1).^2 + posErrAll(:,2).^2);
+horErrFD  = sqrt(posErrFD(:,1).^2 + posErrFD(:,2).^2);
 rmseAll  = sqrt(mean(posErrAll.^2,1));
 rmseFD   = sqrt(mean(posErrFD.^2,1));
 rmseAll3D = sqrt(mean(sum(posErrAll.^2,2)));
@@ -112,7 +118,7 @@ myfigure('Position Error Comparison');
 labels = {'North', 'East', 'Up'};
 for idx = 1:3
     subplot(3,1,idx);
-    plot(tMeas, posErrAll(:,idx), 'b', tMeas, posErrFD(:,idx), 'r--', 'LineWidth', 1.2);
+    plot(tAll, posErrAll(:,idx), 'b', tFD, posErrFD(:,idx), 'r--', 'LineWidth', 1.2);
     grid on;  ylabel([labels{idx}, ' / m']);
     if idx==1
         title('Position errors with and without residual-based fault rejection');
@@ -142,26 +148,32 @@ ylabel('State');
 ylim([-0.1 1.1]);
 legend('Injected fault','FD decision','Dwell active','Location','best');
 
-% Actual Navigation Performance (ANP) estimation and RNP comparison (FD-enabled filter)
+% Actual Navigation Performance (ANP) estimation versus realised horizontal error (FD-enabled)
 posVarFD = xkpkFD(:,15+(7:9));             % covariance of [dlat, dlon, dhgt]
-sigmaLat = sqrt(posVarFD(:,1));             % latitude 1-sigma in rad
-sigmaLon = sqrt(posVarFD(:,2));             % longitude 1-sigma in rad
-[RMhFD, clRNhFD] = RMRN(avpFD(:,7:9));     % meridian & transverse radii (m)
-sigmaNorth = RMhFD .* sigmaLat;             % convert to metres
-sigmaEast  = clRNhFD .* sigmaLon;
-kh95 = sqrt(5.9915);                        % sqrt(chi2inv(0.95,2)) for 95% circle
+sigmaLat = sqrt(posVarFD(:,1));            % latitude 1-sigma in rad
+sigmaLon = sqrt(posVarFD(:,2));            % longitude 1-sigma in rad
+[RMhFDEst, clRNhFDEst] = RMRN(avpFD(:,7:9));   % meridian & transverse radii (m)
+sigmaNorth = RMhFDEst .* sigmaLat;         % convert to metres
+sigmaEast  = clRNhFDEst .* sigmaLon;
+kh95 = sqrt(5.9915);                       % sqrt(chi2inv(0.95,2)) for 95% circle
 anp = kh95 .* sqrt(sigmaNorth.^2 + sigmaEast.^2);
-rnp = 0.1 * glv.nm * ones(size(anp));       % RNP AR 0.1 requirement in metres
+rnp = 0.1 * glv.nm * ones(size(anp));      % RNP AR 0.1 requirement in metres
 
-myfigure('ANP_vs_RNP');
-plot(avpFD(:,end), anp, 'b', avpFD(:,end), rnp, 'r--', 'LineWidth', 1.5);
+myfigure('ANP_vs_HorizontalError');
+plot(tFD, anp, 'b', 'LineWidth', 1.5);
 hold on;
-violations = anp > rnp;
-if any(violations)
-    plot(avpFD(violations,end), anp(violations), 'ro', 'MarkerFaceColor', 'r');
+plot(tFD, horErrFD, 'Color',[0.1 0.6 0.1], 'LineWidth', 1.5);
+plot(tFD, rnp, 'r--', 'LineWidth', 1.3);
+violationsRNP = anp > rnp;
+if any(violationsRNP)
+    plot(tFD(violationsRNP), anp(violationsRNP), 'ro', 'MarkerFaceColor', 'r');
+end
+errBeyondANP = horErrFD > anp;
+if any(errBeyondANP)
+    plot(tFD(errBeyondANP), horErrFD(errBeyondANP), 'ks', 'MarkerFaceColor', [0.1 0.6 0.1]);
 end
 grid on;  xygo('Time / s', 'Horizontal performance / m');
-legend('ANP (95%)','RNP AR 0.1','Location','best');
+legend('ANP (95%)','Horizontal error','RNP AR 0.1','Location','best');
 
 
 function [faultedPos, isFault, biasNEU] = applyGpsFaults(t, nominalPos, faultWindows, faultSpikes)
