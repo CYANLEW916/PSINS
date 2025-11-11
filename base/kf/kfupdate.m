@@ -53,6 +53,7 @@ function kf = kfupdate(kf, yk, TimeMeasBoth)
         kf.ykk_1 = kf.Hk*kf.xkk_1;
         kf.rk = yk-kf.ykk_1;
         idxbad = [];  % bad measurement index
+        faultIdx = [];
         if kf.adaptive==1  % for adaptive KF, make sure Rk is diag 24/04/2015
             for k=1:kf.m
                 if yk(k)>1e10, idxbad=[idxbad;k]; continue; end  % 16/12/2019
@@ -65,8 +66,46 @@ function kf = kfupdate(kf, yk, TimeMeasBoth)
             kf.beta = kf.beta/(kf.beta+kf.b);
         end
         kf.Pykk_1 = kf.Py0 + kf.Rk;
+        if isfield(kf, 'fd')
+            kf.fd.inDwell = kf.measstop > 0;
+        end
+        if isfield(kf, 'fd') && kf.fd.enable
+            diagPy = diag(kf.Pykk_1);
+            diagPy(diagPy<=0) = eps;
+            try
+                L = chol(kf.Pykk_1, 'lower');
+                whitened = L\kf.rk;
+            catch
+                whitened = kf.rk./sqrt(diagPy);
+            end
+            kf.fd.whitenedResidual = whitened;
+            kf.fd.nis = real(sum(whitened.^2));
+            kf.fd.residual = kf.rk;
+            thr = kf.fd.chi2Threshold;
+            if isempty(thr), thr = inf; end
+            if numel(thr)~=1
+                thr = thr(1);
+            end
+            if kf.fd.nis > thr
+                kf.fd.isOutlier = true(kf.m,1);
+                faultIdx = (1:kf.m)';
+                if kf.fd.holdTime>0
+                    kf.measstop(faultIdx) = max(kf.measstop(faultIdx), kf.fd.holdTime);
+                end
+            else
+                kf.fd.isOutlier = false(kf.m,1);
+            end
+        elseif isfield(kf, 'fd')
+            kf.fd.whitenedResidual = zeros(kf.m,1);
+            kf.fd.nis = 0;
+            kf.fd.isOutlier = false(kf.m,1);
+            kf.fd.residual = kf.rk;
+        end
+        if isfield(kf, 'fd')
+            kf.fd.inDwell = kf.measstop > 0;
+        end
         kf.Kk = kf.Pxykk_1*invbc(kf.Pykk_1); % kf.Kk = kf.Pxykk_1*kf.Pykk_1^-1;
-        nomeas = union(find(kf.measstop>0),[kf.measmask;idxbad]);    % no measurement update index, 20/11/2022
+        nomeas = union(find(kf.measstop>0),[kf.measmask;idxbad;faultIdx]);    % no measurement update index, 20/11/2022
         hasmeas = (1:kf.m)';
         if ~isempty(nomeas), kf.Kk(:,nomeas)=0; hasmeas(nomeas)=[]; end
         if ~isempty(hasmeas), kf.measlog=bitor(kf.measlog,sum(2.^(hasmeas-1))); kf.measlost(hasmeas)=0; end
