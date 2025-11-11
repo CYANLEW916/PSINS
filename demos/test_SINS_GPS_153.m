@@ -6,7 +6,7 @@
 % 17/06/2011, updated 15/11/2024
 glvs
 psinstypedef(153);
-trj = trjfile('trj10ms.mat');
+trj = trjfile('trj_TL_approach.mat');
 
 % initial settings
 [nn, ts, nts] = nnts(2, trj.ts);
