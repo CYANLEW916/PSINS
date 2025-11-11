@@ -30,6 +30,38 @@ function kf = kfinit0(kf, nts)
     if ~isfield(kf, 'pconstrain'),  kf.pconstrain = 0;  end
     kf.Pmax = (diag(kf.Pxk)+1)*1.0e10;
     kf.Pmin = kf.Pmax*0;
+    if ~isfield(kf, 'fd') || ~isstruct(kf.fd)
+        kf.fd = struct();
+    end
+    if ~isfield(kf.fd, 'enable'), kf.fd.enable = 0; end
+    if ~isfield(kf.fd, 'chi2Threshold'), kf.fd.chi2Threshold = inf; end
+    if ~isfield(kf.fd, 'holdTime'), kf.fd.holdTime = 0; end
+    if ~isfield(kf.fd, 'isOutlier'), kf.fd.isOutlier = false(kf.m,1); end
+    if ~isfield(kf.fd, 'whitenedResidual'), kf.fd.whitenedResidual = zeros(kf.m,1); end
+    if ~isfield(kf.fd, 'nis'), kf.fd.nis = 0; end
+    if ~isfield(kf.fd, 'inDwell'), kf.fd.inDwell = false(kf.m,1); end
+    if ~isfield(kf.fd, 'slidingEnable'), kf.fd.slidingEnable = 0; end
+    if ~isfield(kf.fd, 'stateLag'), kf.fd.stateLag = 5; end
+    if ~isfield(kf.fd, 'slidingWindow'), kf.fd.slidingWindow = max(5, kf.fd.stateLag); end
+    if ~isfield(kf.fd, 'slidingThreshold'), kf.fd.slidingThreshold = inf; end
+    if ~isfield(kf.fd, 'slidingReference'), kf.fd.slidingReference = 1; end
+    if ~isfield(kf.fd, 'slidingBuffer'), kf.fd.slidingBuffer = zeros(kf.m, kf.fd.slidingWindow); end
+    if ~isfield(kf.fd, 'slidingIndex'), kf.fd.slidingIndex = 1; end
+    if ~isfield(kf.fd, 'slidingStat'), kf.fd.slidingStat = zeros(kf.m,1); end
+    if ~isfield(kf.fd, 'slidingTriggered'), kf.fd.slidingTriggered = false; end
+    if ~isfield(kf.fd, 'slidingOutlierIdx'), kf.fd.slidingOutlierIdx = false(kf.m,1); end
+    if ~isfield(kf.fd, 'slidingNis'), kf.fd.slidingNis = zeros(kf.m,1); end
+    if ~isfield(kf.fd, 'slidingCusum'), kf.fd.slidingCusum = zeros(kf.m,1); end
+    if ~isfield(kf.fd, 'slidingCusumThreshold'), kf.fd.slidingCusumThreshold = inf; end
+    if ~isfield(kf.fd, 'slidingCusumDecay'), kf.fd.slidingCusumDecay = 0; end
+    if ~isfield(kf.fd, 'slidingCusumTriggered'), kf.fd.slidingCusumTriggered = false(kf.m,1); end
+    if ~isfield(kf.fd, 'historyCount'), kf.fd.historyCount = 0; end
+    if ~isfield(kf.fd, 'stateHistory') || size(kf.fd.stateHistory,1)~=kf.n
+        kf.fd.stateHistory = repmat(kf.xk, 1, kf.fd.stateLag+1);
+        kf.fd.historyValid = 1;
+    elseif ~isfield(kf.fd, 'historyValid')
+        kf.fd.historyValid = min(size(kf.fd.stateHistory,2), kf.fd.stateLag+1);
+    end
 %     kf.Pykk_1 = kf.Hk*kf.Pxk*kf.Hk'+kf.Rk;
     kf.Pykk_1 = kf.Hk*kf.Pxk*kf.Hk'+0;
     kf.xfb = zeros(kf.n, 1);
