@@ -164,22 +164,28 @@ grid on;  xygo('Time / s', 'Horizontal performance / m');
 legend('ANP (95%)','RNP AR 0.1','Location','best');
 
 
-function [faultedPos, isFault, bias] = applyGpsFaults(t, nominalPos, faultWindows, faultSpikes)
-% Inject deterministic faults into simulated GPS measurements.
-    bias = zeros(3,1);
+function [faultedPos, isFault, biasNEU] = applyGpsFaults(t, nominalPos, faultWindows, faultSpikes)
+% Inject deterministic faults (in metres) into simulated GPS measurements.
+    biasNEU = zeros(3,1);
     isFault = false;
     for k = 1:size(faultWindows,1)
         if t>=faultWindows(k,1) && t<faultWindows(k,2)
-            bias = bias + faultWindows(k,3:5)';
+            biasNEU = biasNEU + faultWindows(k,3:5)';
             isFault = true;
         end
     end
     for k = 1:size(faultSpikes,1)
         if abs(t-faultSpikes(k,1))<1e-3
-            bias = bias + faultSpikes(k,2:4)';
+            biasNEU = biasNEU + faultSpikes(k,2:4)';
             isFault = true;
         end
     end
-    faultedPos = nominalPos + bias;
+    if any(biasNEU)
+        [RMh, clRNh] = RMRN(nominalPos');
+        dPos = [biasNEU(1)/RMh(1); biasNEU(2)/clRNh(1); biasNEU(3)];
+    else
+        dPos = zeros(3,1);
+    end
+    faultedPos = nominalPos + dPos;
 end
 
