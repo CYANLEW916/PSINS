@@ -10,7 +10,7 @@ trj = trjfile('trj10ms.mat');
 
 % initial settings
 [nn, ts, nts] = nnts(2, trj.ts);
-imuerr = imuerrset(0.03, 100, 0.001, 5);
+imuerr = imuerrset(0.1, 300, 0.005, 15);
 imu = imuadderr(trj.imu, imuerr);
 davp0 = avperrset([0.5;-0.5;20], 0.1, [1;1;3]);
 insAll = insinit(avpadderr(trj.avp0,davp0), ts);
@@ -40,6 +40,8 @@ faultSpikes = [
     420,-180,  220, -35;
 ];
 
+gpsNoiseStd = [4; 4; 7];
+
 len = length(imu);
 rows = fix(len/nn);
 [avpAll, avpFD, xkpkAll, xkpkFD, nisLog, faultFlagLog, detectLog, dwellLog] = ...
@@ -57,7 +59,7 @@ for k = 1:nn:len-nn+1
     kfAll = kfupdate(kfAll);
     kfFD  = kfupdate(kfFD);
     if mod(t,1)==0
-        posGPSNominal = trj.avp(k1,7:9)' + davp0(7:9).*randn(3,1);  % GPS with nominal white noise
+        posGPSNominal = trj.avp(k1,7:9)' + gpsNoiseStd.*randn(3,1);  % GPS with increased white noise
         [posGPSFaulted, faultActive, ~] = applyGpsFaults(t, posGPSNominal, faultWindows, faultSpikes);
         yAll = insAll.pos - posGPSFaulted;
         yFD  = insFD.pos  - posGPSFaulted;
@@ -157,23 +159,17 @@ sigmaNorth = RMhFDEst .* sigmaLat;         % convert to metres
 sigmaEast  = clRNhFDEst .* sigmaLon;
 kh95 = sqrt(5.9915);                       % sqrt(chi2inv(0.95,2)) for 95% circle
 anp = kh95 .* sqrt(sigmaNorth.^2 + sigmaEast.^2);
-rnp = 0.1 * glv.nm * ones(size(anp));      % RNP AR 0.1 requirement in metres
 
 myfigure('ANP_vs_HorizontalError');
 plot(tFD, anp, 'b', 'LineWidth', 1.5);
 hold on;
 plot(tFD, horErrFD, 'Color',[0.1 0.6 0.1], 'LineWidth', 1.5);
-plot(tFD, rnp, 'r--', 'LineWidth', 1.3);
-violationsRNP = anp > rnp;
-if any(violationsRNP)
-    plot(tFD(violationsRNP), anp(violationsRNP), 'ro', 'MarkerFaceColor', 'r');
-end
 errBeyondANP = horErrFD > anp;
 if any(errBeyondANP)
     plot(tFD(errBeyondANP), horErrFD(errBeyondANP), 'ks', 'MarkerFaceColor', [0.1 0.6 0.1]);
 end
 grid on;  xygo('Time / s', 'Horizontal performance / m');
-legend('ANP (95%)','Horizontal error','RNP AR 0.1','Location','best');
+legend('ANP (95%)','Horizontal error','Location','best');
 
 
 function [faultedPos, isFault, biasNEU] = applyGpsFaults(t, nominalPos, faultWindows, faultSpikes)
