@@ -165,12 +165,14 @@ myfigure('ANP_vs_HorizontalError');
 plot(tFD, anp, 'b', 'LineWidth', 1.5);
 hold on;
 plot(tFD, horErrFD, 'Color',[0.1 0.6 0.1], 'LineWidth', 1.5);
+rnpAR01 = 92.6;                           % RNP AR 0.1 NM requirement (metres)
+yline(rnpAR01, 'r-', 'LineWidth', 1.2);
 errBeyondANP = horErrFD > anp;
 if any(errBeyondANP)
     plot(tFD(errBeyondANP), horErrFD(errBeyondANP), 'ks', 'MarkerFaceColor', [0.1 0.6 0.1]);
 end
 grid on;  xygo('Time / s', 'Horizontal performance / m');
-legend('ANP (95%)','Horizontal error','Location','best');
+legend('ANP (95%)','Horizontal error','RNP AR 0.1 (92.6 m)','Location','best');
 
 
 function [faultedPos, isFault, biasNEU] = applyGpsFaults(t, nominalPos, faultWindows, faultSpikes)
