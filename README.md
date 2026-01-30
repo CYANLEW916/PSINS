@@ -44,12 +44,45 @@ When developing this toolbox, the author’s PC setting is:
 
 Microsoft Windows 7 (SP1) + MATLAB 8.2.0 (R2013b) + CPU 2.1GHz + RAM 2.0GB.
 
-## 4. Quick Start
+## 4. Repository Structure
 
-1. Copy the PSINS toolbox root folder `psins\`, including all subfolders and files, to your computer.
-2. Run `psins\psinsinit.m` to initialize PSINS environment.
-3. Run `psins\demos\test_SINS_trj.m` to generate a moving trajectory.
-4. Run `psins\demos\test_SINS_GPS.m` to demonstrate SINS/GPS integrated navigation.
-5. There are many demo examples in `psins\demos`, such as coning & sculling motion demonstration, initial alignment, pure inertial navigation and POS data fusion, etc.
-6. Try to do some modification and put your exercise file under `psins\mytest`. Enjoy yourself and may you find something helpful!
+```
+PSINS/
+├── src/                    # Source code
+│   ├── core/               # Core math functions (attitude, quaternions, DCM)
+│   ├── algorithms/         # Navigation algorithms
+│   │   ├── navigation/     # Pure INS navigation
+│   │   ├── alignment/      # Initial alignment methods
+│   │   ├── filtering/      # Kalman filter variants (EKF, UKF, etc.)
+│   │   ├── processing/     # Advanced INS processing
+│   │   ├── ahrs/           # AHRS algorithms
+│   │   └── cns/            # Celestial navigation
+│   ├── sensors/            # Sensor models and processing
+│   │   ├── imu/            # IMU calibration and error models
+│   │   └── gnss/           # GNSS (GPS, BeiDou, GLONASS)
+│   ├── utilities/          # Tools and utilities
+│   │   ├── io/             # File I/O functions
+│   │   ├── tools/          # Math and signal processing
+│   │   └── dlg/            # GUI dialogs
+│   └── visualization/      # Plotting functions
+├── tests/                  # Test files and examples
+│   ├── demos/              # Demo scripts (101 examples)
+│   ├── data/               # Test data files
+│   ├── gnss/               # GNSS integration tests
+│   └── mytest/             # User test area
+├── docs/                   # Documentation
+├── config/                 # Configuration templates
+├── examples/               # High-level usage examples
+└── legacy/                 # Legacy code
+    └── cpp/                # C++ implementation
+```
+
+## 5. Quick Start
+
+1. Copy the PSINS toolbox root folder `PSINS/`, including all subfolders and files, to your computer.
+2. Run `PSINS/psinsinit.m` to initialize PSINS environment.
+3. Run `PSINS/tests/demos/test_SINS_trj.m` to generate a moving trajectory.
+4. Run `PSINS/tests/demos/test_SINS_GPS.m` to demonstrate SINS/GPS integrated navigation.
+5. There are many demo examples in `PSINS/tests/demos/`, such as coning & sculling motion demonstration, initial alignment, pure inertial navigation and POS data fusion, etc.
+6. Try to do some modification and put your exercise file under `PSINS/tests/mytest/`. Enjoy yourself and may you find something helpful!
 

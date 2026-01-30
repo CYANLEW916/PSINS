@@ -1,3 +1,53 @@
+# MATLAB
 *.asv
+*.m~
+*.mex*
+slprj/
+sccprj/
+codegen/
+
+# MATLAB temporary files
+*.log
+*.bak
+
+# Simulink
+*.slxc
+*.autosave
+
+# Build directories
 [Dd]ebug/
 [Rr]elease/
+*.obj
+*.exe
+*.dll
+*.lib
+*.o
+*.a
+
+# Visual Studio
+*.ncb
+*.suo
+*.user
+*.pdb
+*.idb
+*.ilk
+.vs/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# Generated environment file
+psinsenvi.m
+
+# Large binary data files (uncomment if needed)
+# *.bin
+# *.imu
+# *.mat

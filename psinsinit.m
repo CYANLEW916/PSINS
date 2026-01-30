@@ -25,15 +25,15 @@ end
 rootpath = pwd;
 pp = genpath(rootpath);
 idx = strfind(pp,';');
-for k=length(idx):-1:2  % remove vc60 & doc
-    if ~isempty(strfind(pp(idx(k-1)+1:idx(k)),'vc60')), pp(idx(k-1)+1:idx(k))=[];
-    elseif ~isempty(strfind(pp(idx(k-1)+1:idx(k)),'doc')), pp(idx(k-1)+1:idx(k))=[]; end
+for k=length(idx):-1:2  % remove legacy & docs
+    if ~isempty(strfind(pp(idx(k-1)+1:idx(k)),'legacy')), pp(idx(k-1)+1:idx(k))=[];
+    elseif ~isempty(strfind(pp(idx(k-1)+1:idx(k)),'docs')), pp(idx(k-1)+1:idx(k))=[]; end
 end
 mytestflag = 0;
-if exist('mytest\mytestinit.m', 'file')
+if exist('tests\mytest\mytestinit.m', 'file')
     mytestflag = 1;
 end
-datapath = [rootpath, '\data\'];
+datapath = [rootpath, '\tests\data\'];
 if isempty(find(rootpath=='\',1))  % for Unix
     rootpath(rootpath=='\')='/';
     datapath(datapath=='\')='/';
