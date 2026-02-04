@@ -52,8 +52,10 @@ Microsoft Windows 7 (SP1) + MATLAB 8.2.0 (R2013b) + CPU 2.1GHz + RAM 2.0GB.
 4. Run `psins\demos\test_SINS_GPS.m` to demonstrate SINS/GPS integrated navigation.
 5. Run `psins\demos\test_SINS_trj_NLG.m` to simulate the NLG approach waypoint
    trajectory example.
-6. There are many demo examples in `psins\demos`, such as coning & sculling
+6. Run `psins\demos\test_SINS_IRS_ISIS.m` to simulate IRS1/2 and ISIS sensor
+   data based on the trj10ms trajectory.
+7. There are many demo examples in `psins\demos`, such as coning & sculling
    motion demonstration, initial alignment, pure inertial navigation and POS data
    fusion, etc.
-7. Try to do some modification and put your exercise file under `psins\mytest`.
+8. Try to do some modification and put your exercise file under `psins\mytest`.
    Enjoy yourself and may you find something helpful!
