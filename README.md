@@ -53,7 +53,7 @@ Microsoft Windows 7 (SP1) + MATLAB 8.2.0 (R2013b) + CPU 2.1GHz + RAM 2.0GB.
 5. Run `psins\demos\test_SINS_trj_NLG.m` to simulate the NLG approach waypoint
    trajectory example.
 6. Run `psins\demos\test_SINS_IRS_ISIS.m` to simulate IRS1/2 and ISIS sensor
-   data based on the trj10ms trajectory.
+   data, including the fault injection and detection evaluation demo.
 7. There are many demo examples in `psins\demos`, such as coning & sculling
    motion demonstration, initial alignment, pure inertial navigation and POS data
    fusion, etc.
