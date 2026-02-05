@@ -15,23 +15,35 @@ if isempty(faultIdx)
     error('ISIS sensor data not found.');
 end
 
-avpNom = sensorData(faultIdx).avp;
-t = avpNom(:, end);
-trjAvp = trj.avp(1:size(avpNom, 1), :);
+imuNom = sensorData(faultIdx).imu;
+t = imuNom(:, end);
+nSample = size(imuNom, 1);
 
 faultCfg = buildFaultConfig(t);
 detCfg = makeDetectionConfig();
 
-[avpFault, faultMask] = injectFaults(avpNom, t, faultCfg);
-[detMask, resFault] = detectFaults(avpFault, trjAvp, t, detCfg);
-[detMaskNom, resNom] = detectFaults(avpNom, trjAvp, t, detCfg);
+[imuFault, faultMask, statusMask] = injectImuFaults(imuNom, t, faultCfg);
+sensorDataFault = sensorData;
+sensorDataFault(faultIdx).imu = imuFault;
+
+[refImuAll, resNomAll] = computeAllImuResiduals(sensorData, nSample, t);
+detCfg = tuneDetectionThresholds(resNomAll, detCfg);
+[resFault, detMask] = detectImuFaults(imuFault, refImuAll{faultIdx}, t, detCfg);
+[resNom, detMaskNom] = detectImuFaults(imuNom, refImuAll{faultIdx}, t, detCfg);
+[~, resFaultAll] = computeAllImuResiduals(sensorDataFault, nSample, t);
+[voteMask, voteDetail] = voteFaults(resFaultAll, detCfg);
 
 metricsFault = calcFdiMetrics(faultMask, detMask, t);
 metricsNom = calcFdiMetrics(false(size(t)), detMaskNom, t);
 
+avpNom = sensorData(faultIdx).avp;
+avpFault = inspure(imuFault, avpNom(1, 1:9)', trj.bh, 1);
+sensorDataFault(faultIdx).avp = avpFault;
+
 avpMit = avpFault;
 avpMit(detMask, :) = avpNom(detMask, :);
 
+trjAvp = trj.avp(1:size(avpNom, 1), :);
 rmseNom = computeRmse(avpNom, trjAvp);
 rmseFault = computeRmse(avpFault, trjAvp);
 rmseMit = computeRmse(avpMit, trjAvp);
@@ -52,12 +64,14 @@ fprintf(['RMSE att/vel/pos (mitigated): [%.3f %.3f %.3f] ', ...
 
 save('trj10ms_sensor_data_faults.mat', 'specs', 'faultCfg', 'detCfg', ...
     'metricsFault', 'metricsNom', 'rmseNom', 'rmseFault', 'rmseMit', ...
-    'avpFault', 'avpMit', 't');
+    'avpFault', 'avpMit', 't', 'voteMask', 'voteDetail', 'statusMask', ...
+    'refImuAll');
 
 plotFdiResults(t, resFault, detMask, faultMask, detCfg, 'Faulty case');
 plotFdiResults(t, resNom, detMaskNom, false(size(t)), detCfg, ...
     'Nominal case');
 plotNavErrors(t, avpNom, avpFault, avpMit, trjAvp);
+plotSensorOutputs(t, sensorDataFault, nSample);
 
 %% helper functions
 function faultCfg = buildFaultConfig(t)
@@ -66,67 +80,129 @@ function faultCfg = buildFaultConfig(t)
 %   and magnitudes based on the time vector t.
     tEnd = t(end);
     faultCfg = struct( ...
-        'name', {'att_step', 'vel_step', 'pos_ramp'}, ...
-        'tStart', {0.2 * tEnd, 0.5 * tEnd, 0.7 * tEnd}, ...
-        'tEnd', {0.3 * tEnd, 0.55 * tEnd, 0.85 * tEnd}, ...
-        'attDeg', {[2 0 0], [], []}, ...
-        'vel', {[], [0.5 0 0], []}, ...
-        'posRampM', {[], [], [50 0 0]});
+        'name', {'gyro_step', 'acc_step'}, ...
+        'tStart', {0.2 * tEnd, 0.6 * tEnd}, ...
+        'tEnd', {0.3 * tEnd, 0.7 * tEnd}, ...
+        'gyroDeg', {[0.5 0 0], []}, ...
+        'acc', {[], [0.02 0 0]});
+end
+
+function refImu = buildReferenceImu(sensorData, faultIdx, nSample)
+%BUILDREFERENCEIMU Build reference IMU from non-faulty sensors.
+%   refImu = BUILDREFERENCEIMU(sensorData, faultIdx, nSample) returns a
+%   reference IMU using the mean of the other sensors.
+    otherIdx = setdiff(1:numel(sensorData), faultIdx);
+    if isempty(otherIdx)
+        error('No reference sensor data available.');
+    end
+    imuStack = [];
+    for k = otherIdx
+        imu = sensorData(k).imu(1:nSample, :);
+        imuStack = cat(3, imuStack, imu);
+    end
+    refImu = mean(imuStack, 3);
+end
+
+function [refImuAll, resNomAll] = computeAllImuResiduals(sensorData, nSample, t)
+%COMPUTEALLIMURESIDUALS Build references and residuals for all sensors.
+%   [refImuAll, resNomAll] = COMPUTEALLIMURESIDUALS(sensorData, nSample, t)
+%   returns cell arrays for each sensor.
+    nSensor = numel(sensorData);
+    refImuAll = cell(nSensor, 1);
+    resNomAll = cell(nSensor, 1);
+    for k = 1:nSensor
+        refImuAll{k} = buildReferenceImu(sensorData, k, nSample);
+        imu = sensorData(k).imu(1:nSample, :);
+        resNomAll{k} = computeImuResiduals(imu, refImuAll{k}, t);
+    end
 end
 
 function detCfg = makeDetectionConfig()
 %MAKEDETECTIONCONFIG Thresholds for fault detection.
 %   detCfg = MAKEDETECTIONCONFIG() returns thresholds and persistence.
-    detCfg = struct('attDeg', 0.6, 'vel', 0.3, 'posM', 15, ...
-        'minPersist', 5);
+    detCfg = struct('sigmaFactor', 3, 'baseFrac', 0.15, ...
+        'minPersist', 5, 'gyroDeg', [], 'acc', []);
 end
 
-function [avpFault, faultMask] = injectFaults(avp, t, faultCfg)
-%INJECTFAULTS Inject additive faults into AVP outputs.
-%   [avpFault, faultMask] = INJECTFAULTS(avp, t, faultCfg) injects faults
-%   defined in faultCfg into avp and returns the fault mask.
+function [imuFault, faultMask, statusMask] = injectImuFaults(imu, t, faultCfg)
+%INJECTIMUFAULTS Inject additive faults into IMU with recovery.
+%   [imuFault, faultMask, statusMask] = INJECTIMUFAULTS(imu, t, faultCfg)
+%   injects faults defined in faultCfg into IMU, resets to nominal after
+%   each fault window, and returns the fault/status masks.
     global glv
-    avpFault = avp;
+    imuNom = imu;
+    imuFault = imuNom;
     faultMask = false(size(t));
+    statusMask = false(size(t));
     for k = 1:numel(faultCfg)
         idx = t >= faultCfg(k).tStart & t <= faultCfg(k).tEnd;
         faultMask = faultMask | idx;
-        if ~isempty(faultCfg(k).attDeg)
-            attAdd = repmat(faultCfg(k).attDeg, sum(idx), 1) * glv.deg;
-            avpFault(idx, 1:3) = avpFault(idx, 1:3) + attAdd;
+        statusMask(idx) = true;
+        if ~isempty(faultCfg(k).gyroDeg)
+            gyroAdd = repmat(faultCfg(k).gyroDeg, sum(idx), 1) * glv.deg;
+            imuFault(idx, 1:3) = imuNom(idx, 1:3) + gyroAdd;
         end
-        if ~isempty(faultCfg(k).vel)
-            velAdd = repmat(faultCfg(k).vel, sum(idx), 1);
-            avpFault(idx, 4:6) = avpFault(idx, 4:6) + velAdd;
-        end
-        if ~isempty(faultCfg(k).posRampM)
-            ramp = (t(idx) - faultCfg(k).tStart) / ...
-                (faultCfg(k).tEnd - faultCfg(k).tStart);
-            ramp = ramp(:);
-            dpos = bsxfun(@times, ramp, faultCfg(k).posRampM);
-            dpos(:, 1:2) = dpos(:, 1:2) / glv.Re;
-            avpFault(idx, 7:9) = avpFault(idx, 7:9) + dpos;
+        if ~isempty(faultCfg(k).acc)
+            accAdd = repmat(faultCfg(k).acc, sum(idx), 1);
+            imuFault(idx, 4:6) = imuNom(idx, 4:6) + accAdd;
         end
     end
 end
 
-function [detMask, res] = detectFaults(avp, avpRef, t, detCfg)
-%DETECTFAULTS Detect faults based on residual thresholds.
-%   [detMask, res] = DETECTFAULTS(avp, avpRef, t, detCfg) returns the
-%   detection mask and residual diagnostics.
+function res = computeImuResiduals(imu, imuRef, t)
+%COMPUTEIMURESIDUALS Compute residual magnitudes between IMU and reference.
+%   res = COMPUTEIMURESIDUALS(imu, imuRef, t) returns residuals.
     global glv
-    attErrDeg = (avp(:, 1:3) - avpRef(:, 1:3)) / glv.deg;
-    velErr = avp(:, 4:6) - avpRef(:, 4:6);
-    posErr = avp(:, 7:9) - avpRef(:, 7:9);
-    posErr(:, 1:2) = posErr(:, 1:2) * glv.Re;
-    res.att = sqrt(sum(attErrDeg .^ 2, 2));
-    res.vel = sqrt(sum(velErr .^ 2, 2));
-    res.pos = sqrt(sum(posErr .^ 2, 2));
+    gyroErr = (imu(:, 1:3) - imuRef(:, 1:3)) / glv.deg;
+    accErr = imu(:, 4:6) - imuRef(:, 4:6);
+    res.gyro = sqrt(sum(gyroErr .^ 2, 2));
+    res.acc = sqrt(sum(accErr .^ 2, 2));
     res.t = t;
-    detRaw = res.att > detCfg.attDeg | res.vel > detCfg.vel | ...
-        res.pos > detCfg.posM;
+end
+
+function detCfg = tuneDetectionThresholds(resNom, detCfg)
+%TUNEDETECTIONTHRESHOLDS Estimate thresholds from nominal residuals.
+%   detCfg = TUNEDETECTIONTHRESHOLDS(resNom, detCfg) updates thresholds.
+    t = resNom{1}.t;
+    baseIdx = t <= detCfg.baseFrac * t(end);
+    if ~any(baseIdx)
+        baseIdx = true(size(t));
+    end
+    gyroStack = [];
+    accStack = [];
+    for k = 1:numel(resNom)
+        gyroStack = [gyroStack; resNom{k}.gyro(baseIdx)];
+        accStack = [accStack; resNom{k}.acc(baseIdx)];
+    end
+    detCfg.gyroDeg = mean(gyroStack) + detCfg.sigmaFactor * std(gyroStack);
+    detCfg.acc = mean(accStack) + detCfg.sigmaFactor * std(accStack);
+end
+
+function [res, detMask] = detectImuFaults(imu, imuRef, t, detCfg)
+%DETECTIMUFAULTS Detect faults based on IMU residual thresholds.
+%   [res, detMask] = DETECTIMUFAULTS(imu, imuRef, t, detCfg) returns residuals
+%   and the detection mask.
+    res = computeImuResiduals(imu, imuRef, t);
+    detRaw = res.gyro > detCfg.gyroDeg | res.acc > detCfg.acc;
     detMask = filter(ones(detCfg.minPersist, 1), 1, double(detRaw)) >= ...
         detCfg.minPersist;
+end
+
+function [voteMask, voteDetail] = voteFaults(resNomAll, detCfg)
+%VOTEFAULTS Vote-based fault flags across sensors.
+%   [voteMask, voteDetail] = VOTEFAULTS(resNomAll, detCfg) flags a sensor
+%   as faulty when it disagrees with its reference while others agree.
+    nSensor = numel(resNomAll);
+    voteMask = false(numel(resNomAll{1}.t), nSensor);
+    voteDetail = struct('gyro', [], 'acc', []);
+    voteDetail.gyro = false(size(voteMask));
+    voteDetail.acc = false(size(voteMask));
+    for k = 1:nSensor
+        res = resNomAll{k};
+        voteDetail.gyro(:, k) = res.gyro > detCfg.gyroDeg;
+        voteDetail.acc(:, k) = res.acc > detCfg.acc;
+        voteMask(:, k) = voteDetail.gyro(:, k) | voteDetail.acc(:, k);
+    end
 end
 
 function metrics = calcFdiMetrics(faultMask, detMask, t)
@@ -183,27 +259,23 @@ function rmse = computeRmse(avp, avpRef)
     rmse.pos = sqrt(mean(posErr .^ 2, 1));
 end
 
+
 function plotFdiResults(t, res, detMask, faultMask, detCfg, figTitle)
 %PLOTFDIRESULTS Plot residuals and detection indicators.
 %   PLOTFDIRESULTS(t, res, detMask, faultMask, detCfg, figTitle) draws curves.
     figure('Name', figTitle);
-    subplot(4, 1, 1);
-    plot(t, res.att, 'b'); hold on;
-    yline(detCfg.attDeg, 'r--');
+    subplot(3, 1, 1);
+    plot(t, res.gyro, 'b'); hold on;
+    yline(detCfg.gyroDeg, 'r--');
     plotFaultPatch(t, faultMask);
-    ylabel('Att err (deg)');
+    ylabel('Gyro err (deg)');
     title(figTitle);
-    subplot(4, 1, 2);
-    plot(t, res.vel, 'b'); hold on;
-    yline(detCfg.vel, 'r--');
+    subplot(3, 1, 2);
+    plot(t, res.acc, 'b'); hold on;
+    yline(detCfg.acc, 'r--');
     plotFaultPatch(t, faultMask);
-    ylabel('Vel err (m/s)');
-    subplot(4, 1, 3);
-    plot(t, res.pos, 'b'); hold on;
-    yline(detCfg.posM, 'r--');
-    plotFaultPatch(t, faultMask);
-    ylabel('Pos err (m)');
-    subplot(4, 1, 4);
+    ylabel('Acc err (m/s)');
+    subplot(3, 1, 3);
     plot(t, double(detMask), 'k'); hold on;
     plotFaultPatch(t, faultMask);
     xlabel('Time (s)');
@@ -233,6 +305,89 @@ function plotNavErrors(t, avpNom, avpFault, avpMit, avpRef)
         t, posMit(:, 1), 'g');
     xlabel('Time (s)');
     ylabel('Pos err (m)');
+end
+
+function plotSensorOutputs(t, sensorDataFault, nSample)
+%PLOTSENSOROUTPUTS Plot attitude/velocity/position from all sensors.
+%   PLOTSENSOROUTPUTS(t, sensorDataFault, nSample) draws three figures with
+%   attitude, velocity, and position for the fault-injected sensors.
+    global glv
+    names = {sensorDataFault.name};
+    colors = lines(numel(sensorDataFault));
+    figure('Name', 'Attitude outputs (fault injected)');
+    subplot(3, 1, 1);
+    hold on;
+    for k = 1:numel(sensorDataFault)
+        avp = sensorDataFault(k).avp(1:nSample, :);
+        plot(t, avp(:, 1) / glv.deg, 'Color', colors(k, :));
+    end
+    ylabel('Pitch (deg)');
+    legend(names, 'Location', 'best');
+    subplot(3, 1, 2);
+    hold on;
+    for k = 1:numel(sensorDataFault)
+        avp = sensorDataFault(k).avp(1:nSample, :);
+        plot(t, avp(:, 2) / glv.deg, 'Color', colors(k, :));
+    end
+    ylabel('Roll (deg)');
+    subplot(3, 1, 3);
+    hold on;
+    for k = 1:numel(sensorDataFault)
+        avp = sensorDataFault(k).avp(1:nSample, :);
+        plot(t, avp(:, 3) / glv.deg, 'Color', colors(k, :));
+    end
+    ylabel('Yaw (deg)');
+    xlabel('Time (s)');
+
+    figure('Name', 'Velocity outputs (fault injected)');
+    subplot(3, 1, 1);
+    hold on;
+    for k = 1:numel(sensorDataFault)
+        avp = sensorDataFault(k).avp(1:nSample, :);
+        plot(t, avp(:, 4), 'Color', colors(k, :));
+    end
+    ylabel('V_E (m/s)');
+    legend(names, 'Location', 'best');
+    subplot(3, 1, 2);
+    hold on;
+    for k = 1:numel(sensorDataFault)
+        avp = sensorDataFault(k).avp(1:nSample, :);
+        plot(t, avp(:, 5), 'Color', colors(k, :));
+    end
+    ylabel('V_N (m/s)');
+    subplot(3, 1, 3);
+    hold on;
+    for k = 1:numel(sensorDataFault)
+        avp = sensorDataFault(k).avp(1:nSample, :);
+        plot(t, avp(:, 6), 'Color', colors(k, :));
+    end
+    ylabel('V_U (m/s)');
+    xlabel('Time (s)');
+
+    figure('Name', 'Position outputs (fault injected)');
+    subplot(3, 1, 1);
+    hold on;
+    for k = 1:numel(sensorDataFault)
+        avp = sensorDataFault(k).avp(1:nSample, :);
+        plot(t, avp(:, 7) / glv.deg, 'Color', colors(k, :));
+    end
+    ylabel('Lat (deg)');
+    legend(names, 'Location', 'best');
+    subplot(3, 1, 2);
+    hold on;
+    for k = 1:numel(sensorDataFault)
+        avp = sensorDataFault(k).avp(1:nSample, :);
+        plot(t, avp(:, 8) / glv.deg, 'Color', colors(k, :));
+    end
+    ylabel('Lon (deg)');
+    subplot(3, 1, 3);
+    hold on;
+    for k = 1:numel(sensorDataFault)
+        avp = sensorDataFault(k).avp(1:nSample, :);
+        plot(t, avp(:, 9), 'Color', colors(k, :));
+    end
+    ylabel('Hgt (m)');
+    xlabel('Time (s)');
 end
 
 function [attErr, velErr, posErr] = navErrors(avp, avpRef, glv)
