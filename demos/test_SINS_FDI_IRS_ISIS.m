@@ -1,4 +1,5 @@
 % Fault injection and detection evaluation for IRS1/2 and ISIS sensors.
+% Injects detectable step faults and compares FDR/FAR/delay and RMSE results.
 % Requires 'trj10ms_sensor_data.mat' from test_SINS_IRS_ISIS.m before running.
 % See also  test_SINS_IRS_ISIS, test_SINS_trj.
 
@@ -30,6 +31,8 @@ sensorDataFault(faultIdx).imu = imuFault;
 detCfg = tuneDetectionThresholds(resNomAll, detCfg);
 [resFault, detMask] = detectImuFaults(imuFault, refImuAll{faultIdx}, t, detCfg);
 [resNom, detMaskNom] = detectImuFaults(imuNom, refImuAll{faultIdx}, t, detCfg);
+detMaskFull = detMask;
+detMaskNomFull = detMaskNom;
 [~, resFaultAll] = computeAllImuResiduals(sensorDataFault, nSample, t);
 [voteMask, voteDetail] = voteFaults(resFaultAll, detCfg);
 
@@ -37,13 +40,18 @@ metricsFault = calcFdiMetrics(faultMask, detMask, t);
 metricsNom = calcFdiMetrics(false(size(t)), detMaskNom, t);
 
 avpNom = sensorData(faultIdx).avp;
+avpCount = size(avpNom, 1);
+tAvp = t(1:avpCount);
+detMask = detMaskFull(1:avpCount);
+detMaskNom = detMaskNomFull(1:avpCount);
 avpFault = inspure(imuFault, avpNom(1, 1:9)', trj.bh, 1);
 sensorDataFault(faultIdx).avp = avpFault;
 
-avpMit = avpFault;
-avpMit(detMask, :) = avpNom(detMask, :);
+imuMit = imuFault;
+imuMit(detMaskFull, :) = refImuAll{faultIdx}(detMaskFull, :);
+avpMit = inspure(imuMit, avpNom(1, 1:9)', trj.bh, 1);
 
-trjAvp = trj.avp(1:size(avpNom, 1), :);
+trjAvp = trj.avp(1:avpCount, :);
 rmseNom = computeRmse(avpNom, trjAvp);
 rmseFault = computeRmse(avpFault, trjAvp);
 rmseMit = computeRmse(avpMit, trjAvp);
@@ -67,10 +75,10 @@ save('trj10ms_sensor_data_faults.mat', 'specs', 'faultCfg', 'detCfg', ...
     'avpFault', 'avpMit', 't', 'voteMask', 'voteDetail', 'statusMask', ...
     'refImuAll');
 
-plotFdiResults(t, resFault, detMask, faultMask, detCfg, 'Faulty case');
-plotFdiResults(t, resNom, detMaskNom, false(size(t)), detCfg, ...
+plotFdiResults(t, resFault, detMaskFull, faultMask, detCfg, 'Faulty case');
+plotFdiResults(t, resNom, detMaskNomFull, false(size(t)), detCfg, ...
     'Nominal case');
-plotNavErrors(t, avpNom, avpFault, avpMit, trjAvp);
+plotNavErrors(tAvp, avpNom, avpFault, avpMit, trjAvp);
 plotSensorOutputs(t, sensorDataFault, nSample);
 
 %% helper functions
