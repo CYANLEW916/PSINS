@@ -38,13 +38,16 @@ metricsFault = calcFdiMetrics(faultMask, detMask, t);
 metricsNom = calcFdiMetrics(false(size(t)), detMaskNom, t);
 
 avpNom = sensorData(faultIdx).avp;
+avpCount = size(avpNom, 1);
+detMask = detMask(1:avpCount);
+detMaskNom = detMaskNom(1:avpCount);
 avpFault = inspure(imuFault, avpNom(1, 1:9)', trj.bh, 1);
 sensorDataFault(faultIdx).avp = avpFault;
 
 avpMit = avpFault;
 avpMit(detMask, :) = avpNom(detMask, :);
 
-trjAvp = trj.avp(1:size(avpNom, 1), :);
+trjAvp = trj.avp(1:avpCount, :);
 rmseNom = computeRmse(avpNom, trjAvp);
 rmseFault = computeRmse(avpFault, trjAvp);
 rmseMit = computeRmse(avpMit, trjAvp);
