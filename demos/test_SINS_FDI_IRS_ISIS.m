@@ -1,4 +1,5 @@
 % Fault injection and detection evaluation for IRS1/2 and ISIS sensors.
+% Injects detectable step faults and compares FDR/FAR/delay and RMSE results.
 % Requires 'trj10ms_sensor_data.mat' from test_SINS_IRS_ISIS.m before running.
 % See also  test_SINS_IRS_ISIS, test_SINS_trj.
 
