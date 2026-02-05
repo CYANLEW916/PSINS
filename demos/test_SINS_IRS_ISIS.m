@@ -1,9 +1,9 @@
 % SINS sensor data simulation for IRS1/2 and ISIS based on test_SINS.m.
-% Requires 'trj10ms.mat' from test_SINS_trj.m before running.
+% Requires 'trj_NLG_approach.mat' from NLG approach trajectory data.
 % See also  test_SINS, test_SINS_trj, imuerrset, imuadderr, inspure.
 
 glvs
-trj = trjfile('trj10ms.mat');
+trj = trjfile('D:\All Model\psins251010\data\trj_NLG_approach.mat');
 
 %% initial AVP error setting
 initAvpErr = avperrset([0.5;0.5;5], 0.1, [10;10;10]);
