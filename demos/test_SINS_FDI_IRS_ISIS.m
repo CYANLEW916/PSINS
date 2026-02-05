@@ -1,4 +1,4 @@
-% Fault injection and detection evaluation for IRS1/2 sensors.
+% Fault injection and detection evaluation for IRS1/2 (INS1/2) sensors.
 % Injects detectable step faults and compares FDR/FAR/delay and RMSE results
 % with/without detection mitigation.
 % Requires 'trj10ms_sensor_data.mat' from test_SINS_IRS_ISIS.m before running.
@@ -12,14 +12,10 @@ end
 
 load('trj10ms_sensor_data.mat', 'sensorData', 'specs', 'trj');
 
-irsNames = {'IRS1', 'IRS2'};
-irsIdx = zeros(numel(irsNames), 1);
-for k = 1:numel(irsNames)
-    idxList = find(strcmp({sensorData.name}, irsNames{k}));
-    if isempty(idxList)
-        error('IRS sensor data not found: %s.', irsNames{k});
-    end
-    irsIdx(k) = idxList(1);
+irsNameOptions = {{'IRS1', 'INS1'}, {'IRS2', 'INS2'}};
+irsIdx = zeros(numel(irsNameOptions), 1);
+for k = 1:numel(irsNameOptions)
+    irsIdx(k) = resolveSensorIndex(sensorData, irsNameOptions{k});
 end
 
 imuNom = sensorData(irsIdx(1)).imu;
@@ -116,6 +112,24 @@ function faultCfg = buildFaultConfig(t)
         'tEnd', {0.35 * tEnd, 0.75 * tEnd}, ...
         'gyroDeg', {[0.6 -0.5 0.4], []}, ...
         'acc', {[], [0.03 -0.02 0.015]});
+end
+
+function idx = resolveSensorIndex(sensorData, nameOptions)
+%RESOLVESENSORINDEX Find the first matching sensor index from name options.
+%   idx = RESOLVESENSORINDEX(sensorData, nameOptions) returns the first
+%   matched sensor index for the provided name list.
+    names = {sensorData.name};
+    idx = [];
+    for k = 1:numel(nameOptions)
+        idxList = find(strcmp(names, nameOptions{k}));
+        if ~isempty(idxList)
+            idx = idxList(1);
+            break;
+        end
+    end
+    if isempty(idx)
+        error('IRS/INS sensor data not found: %s.', strjoin(nameOptions, '/'));
+    end
 end
 
 function refImu = buildReferenceImu(sensorData, faultIdx, nSample)
