@@ -15,10 +15,11 @@ load('trj10ms_sensor_data.mat', 'sensorData', 'specs', 'trj');
 irsNames = {'IRS1', 'IRS2'};
 irsIdx = zeros(numel(irsNames), 1);
 for k = 1:numel(irsNames)
-    irsIdx(k) = find(strcmp({sensorData.name}, irsNames{k}), 1, 'first');
-    if isempty(irsIdx(k))
+    idx = find(strcmp({sensorData.name}, irsNames{k}), 1, 'first');
+    if isempty(idx)
         error('IRS sensor data not found: %s.', irsNames{k});
     end
+    irsIdx(k) = idx;
 end
 
 imuNom = sensorData(irsIdx(1)).imu;
