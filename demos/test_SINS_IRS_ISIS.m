@@ -1,9 +1,9 @@
 % SINS sensor data simulation for IRS1/2 and ISIS based on test_SINS.m.
-% Requires 'trj10ms.mat' from test_SINS_trj.m before running.
+% Requires 'trj_NLG_approach.mat' from NLG approach trajectory data.
 % See also  test_SINS, test_SINS_trj, imuerrset, imuadderr, inspure.
 
 glvs
-trj = trjfile('trj10ms.mat');
+trj = trjfile('D:\All Model\psins251010\data\trj_NLG_approach.mat');
 
 %% initial AVP error setting
 initAvpErr = avperrset([0.5;0.5;5], 0.1, [10;10;10]);
@@ -34,12 +34,12 @@ function specs = makeSensorSpecs()
 %MAKESENSORSPECS Build sensor spec table for IRS1/2 and ISIS.
 %   specs = MAKESENSORSPECS() returns a struct array with error specs
 %   (gyro bias/ARW, accel bias) and output noise (attitude/position).
-    specs = struct('name', {'IRS1', 'IRS2', 'ISIS'}, ...
-        'gyroBias', {0.01, 0.01, 0.5}, ...
+    specs = struct('name', {'INS1', 'INS2', 'ISIS'}, ...
+        'gyroBias', {0.01, 0.01, 0.1}, ...
         'gyroArw',  {0.003, 0.003, 0.1}, ...
-        'accBias',  {50, 50, 1000}, ...
-        'attNoise', {0.01, 0.01, 0.3}, ...
-        'posNoise', {5, 5, 50});
+        'accBias',  {100, 100, 5000}, ...
+        'attNoise', {0, 0, 0}, ...
+        'posNoise', {0, 0, 0});
 end
 
 function avp = addOutputNoise(avp, attNoiseDeg, posNoiseM)
