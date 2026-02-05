@@ -31,6 +31,8 @@ sensorDataFault(faultIdx).imu = imuFault;
 detCfg = tuneDetectionThresholds(resNomAll, detCfg);
 [resFault, detMask] = detectImuFaults(imuFault, refImuAll{faultIdx}, t, detCfg);
 [resNom, detMaskNom] = detectImuFaults(imuNom, refImuAll{faultIdx}, t, detCfg);
+detMaskFull = detMask;
+detMaskNomFull = detMaskNom;
 [~, resFaultAll] = computeAllImuResiduals(sensorDataFault, nSample, t);
 [voteMask, voteDetail] = voteFaults(resFaultAll, detCfg);
 
@@ -39,13 +41,14 @@ metricsNom = calcFdiMetrics(false(size(t)), detMaskNom, t);
 
 avpNom = sensorData(faultIdx).avp;
 avpCount = size(avpNom, 1);
-detMask = detMask(1:avpCount);
-detMaskNom = detMaskNom(1:avpCount);
+detMask = detMaskFull(1:avpCount);
+detMaskNom = detMaskNomFull(1:avpCount);
 avpFault = inspure(imuFault, avpNom(1, 1:9)', trj.bh, 1);
 sensorDataFault(faultIdx).avp = avpFault;
 
-avpMit = avpFault;
-avpMit(detMask, :) = avpNom(detMask, :);
+imuMit = imuFault;
+imuMit(detMaskFull, :) = refImuAll{faultIdx}(detMaskFull, :);
+avpMit = inspure(imuMit, avpNom(1, 1:9)', trj.bh, 1);
 
 trjAvp = trj.avp(1:avpCount, :);
 rmseNom = computeRmse(avpNom, trjAvp);
@@ -71,8 +74,8 @@ save('trj10ms_sensor_data_faults.mat', 'specs', 'faultCfg', 'detCfg', ...
     'avpFault', 'avpMit', 't', 'voteMask', 'voteDetail', 'statusMask', ...
     'refImuAll');
 
-plotFdiResults(t, resFault, detMask, faultMask, detCfg, 'Faulty case');
-plotFdiResults(t, resNom, detMaskNom, false(size(t)), detCfg, ...
+plotFdiResults(t, resFault, detMaskFull, faultMask, detCfg, 'Faulty case');
+plotFdiResults(t, resNom, detMaskNomFull, false(size(t)), detCfg, ...
     'Nominal case');
 plotNavErrors(t, avpNom, avpFault, avpMit, trjAvp);
 plotSensorOutputs(t, sensorDataFault, nSample);
