@@ -54,8 +54,9 @@ Microsoft Windows 7 (SP1) + MATLAB 8.2.0 (R2013b) + CPU 2.1GHz + RAM 2.0GB.
    trajectory example.
 6. Run `psins\demos\test_SINS_IRS_ISIS.m` to simulate IRS1/2 and ISIS sensor
    data based on the trj10ms trajectory.
-7. Run `psins\demos\test_SINS_FDI_IRS_ISIS.m` for fault injection and fault
-   detection evaluation based on the simulated sensor data.
+7. Run `psins\demos\test_SINS_FDI_IRS_ISIS.m` to inject step faults and
+   compare FDR/FAR/delay metrics and navigation RMSE based on the simulated
+   sensor data.
 8. There are many demo examples in `psins\demos`, such as coning & sculling
    motion demonstration, initial alignment, pure inertial navigation and POS data
    fusion, etc.
