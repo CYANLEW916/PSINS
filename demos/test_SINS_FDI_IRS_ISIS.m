@@ -1,5 +1,6 @@
-% Fault injection and detection evaluation for IRS1/2 and ISIS sensors.
-% Injects detectable step faults and compares FDR/FAR/delay and RMSE results.
+% Fault injection and detection evaluation for IRS1/2 sensors.
+% Injects detectable step faults and compares FDR/FAR/delay and RMSE results
+% with/without detection mitigation.
 % Requires 'trj10ms_sensor_data.mat' from test_SINS_IRS_ISIS.m before running.
 % See also  test_SINS_IRS_ISIS, test_SINS_trj.
 
@@ -11,87 +12,109 @@ end
 
 load('trj10ms_sensor_data.mat', 'sensorData', 'specs', 'trj');
 
-faultIdx = find(strcmp({sensorData.name}, 'ISIS'), 1, 'first');
-if isempty(faultIdx)
-    error('ISIS sensor data not found.');
+irsNames = {'IRS1', 'IRS2'};
+irsIdx = zeros(numel(irsNames), 1);
+for k = 1:numel(irsNames)
+    irsIdx(k) = find(strcmp({sensorData.name}, irsNames{k}), 1, 'first');
+    if isempty(irsIdx(k))
+        error('IRS sensor data not found: %s.', irsNames{k});
+    end
 end
 
-imuNom = sensorData(faultIdx).imu;
+imuNom = sensorData(irsIdx(1)).imu;
 t = imuNom(:, end);
 nSample = size(imuNom, 1);
 
 faultCfg = buildFaultConfig(t);
 detCfg = makeDetectionConfig();
 
-[imuFault, faultMask, statusMask] = injectImuFaults(imuNom, t, faultCfg);
-sensorDataFault = sensorData;
-sensorDataFault(faultIdx).imu = imuFault;
-
 [refImuAll, resNomAll] = computeAllImuResiduals(sensorData, nSample, t);
 detCfg = tuneDetectionThresholds(resNomAll, detCfg);
-[resFault, detMask] = detectImuFaults(imuFault, refImuAll{faultIdx}, t, detCfg);
-[resNom, detMaskNom] = detectImuFaults(imuNom, refImuAll{faultIdx}, t, detCfg);
-detMaskFull = detMask;
-detMaskNomFull = detMaskNom;
-[~, resFaultAll] = computeAllImuResiduals(sensorDataFault, nSample, t);
-[voteMask, voteDetail] = voteFaults(resFaultAll, detCfg);
+results = struct([]);
+for k = 1:numel(irsIdx)
+    idx = irsIdx(k);
+    imuNom = sensorData(idx).imu;
+    [imuFault, faultMask, statusMask] = injectImuFaults(imuNom, t, faultCfg);
+    sensorDataFault = sensorData;
+    sensorDataFault(idx).imu = imuFault;
 
-metricsFault = calcFdiMetrics(faultMask, detMask, t);
-metricsNom = calcFdiMetrics(false(size(t)), detMaskNom, t);
+    [resFault, detMask] = detectImuFaults(imuFault, refImuAll{idx}, t, detCfg);
+    [resNom, detMaskNom] = detectImuFaults(imuNom, refImuAll{idx}, t, detCfg);
+    metricsFault = calcFdiMetrics(faultMask, detMask, t);
+    metricsNom = calcFdiMetrics(false(size(t)), detMaskNom, t);
 
-avpNom = sensorData(faultIdx).avp;
-avpCount = size(avpNom, 1);
-detMask = detMaskFull(1:avpCount);
-detMaskNom = detMaskNomFull(1:avpCount);
-avpFault = inspure(imuFault, avpNom(1, 1:9)', trj.bh, 1);
-sensorDataFault(faultIdx).avp = avpFault;
+    avpNom = sensorData(idx).avp;
+    avpCount = size(avpNom, 1);
+    tAvp = t(1:avpCount);
+    avpFault = inspure(imuFault, avpNom(1, 1:9)', trj.bh, 1);
+    avpFault = avpFault(1:avpCount, :);
+    sensorDataFault(idx).avp = avpFault;
 
-imuMit = imuFault;
-imuMit(detMaskFull, :) = refImuAll{faultIdx}(detMaskFull, :);
-avpMit = inspure(imuMit, avpNom(1, 1:9)', trj.bh, 1);
+    imuMit = imuFault;
+    imuMit(detMask, :) = refImuAll{idx}(detMask, :);
+    avpMit = inspure(imuMit, avpNom(1, 1:9)', trj.bh, 1);
+    avpMit = avpMit(1:avpCount, :);
 
-trjAvp = trj.avp(1:avpCount, :);
-rmseNom = computeRmse(avpNom, trjAvp);
-rmseFault = computeRmse(avpFault, trjAvp);
-rmseMit = computeRmse(avpMit, trjAvp);
+    trjAvp = trj.avp(1:avpCount, :);
+    rmseNom = computeRmse(avpNom, trjAvp);
+    rmseFault = computeRmse(avpFault, trjAvp);
+    rmseMit = computeRmse(avpMit, trjAvp);
 
-fprintf(['\nFault detection metrics (faulty): FDR=%.3f, FAR=%.3f, ', ...
-    'delay=%.2fs\n'], metricsFault.fdr, metricsFault.far, metricsFault.delay);
-fprintf(['Fault detection metrics (nominal): FDR=%.3f, FAR=%.3f, ', ...
-    'delay=%.2fs\n'], metricsNom.fdr, metricsNom.far, metricsNom.delay);
-fprintf(['RMSE att/vel/pos (nominal): [%.3f %.3f %.3f] ', ...
-    '[%.3f %.3f %.3f] [%.3f %.3f %.3f]\n'], rmseNom.att, rmseNom.vel, ...
-    rmseNom.pos);
-fprintf(['RMSE att/vel/pos (faulty): [%.3f %.3f %.3f] ', ...
-    '[%.3f %.3f %.3f] [%.3f %.3f %.3f]\n'], rmseFault.att, rmseFault.vel, ...
-    rmseFault.pos);
-fprintf(['RMSE att/vel/pos (mitigated): [%.3f %.3f %.3f] ', ...
-    '[%.3f %.3f %.3f] [%.3f %.3f %.3f]\n'], rmseMit.att, rmseMit.vel, ...
-    rmseMit.pos);
+    fprintf(['\n[%s] Fault detection metrics (faulty): FDR=%.3f, ', ...
+        'FAR=%.3f, delay=%.2fs\n'], sensorData(idx).name, metricsFault.fdr, ...
+        metricsFault.far, metricsFault.delay);
+    fprintf(['[%s] Fault detection metrics (nominal): FDR=%.3f, ', ...
+        'FAR=%.3f, delay=%.2fs\n'], sensorData(idx).name, metricsNom.fdr, ...
+        metricsNom.far, metricsNom.delay);
+    fprintf(['[%s] RMSE att/vel/pos (nominal): [%.3f %.3f %.3f] ', ...
+        '[%.3f %.3f %.3f] [%.3f %.3f %.3f]\n'], sensorData(idx).name, ...
+        rmseNom.att, rmseNom.vel, rmseNom.pos);
+    fprintf(['[%s] RMSE att/vel/pos (faulty): [%.3f %.3f %.3f] ', ...
+        '[%.3f %.3f %.3f] [%.3f %.3f %.3f]\n'], sensorData(idx).name, ...
+        rmseFault.att, rmseFault.vel, rmseFault.pos);
+    fprintf(['[%s] RMSE att/vel/pos (mitigated): [%.3f %.3f %.3f] ', ...
+        '[%.3f %.3f %.3f] [%.3f %.3f %.3f]\n'], sensorData(idx).name, ...
+        rmseMit.att, rmseMit.vel, rmseMit.pos);
+
+    results(k).name = sensorData(idx).name;
+    results(k).faultMask = faultMask;
+    results(k).statusMask = statusMask;
+    results(k).metricsFault = metricsFault;
+    results(k).metricsNom = metricsNom;
+    results(k).rmseNom = rmseNom;
+    results(k).rmseFault = rmseFault;
+    results(k).rmseMit = rmseMit;
+    results(k).avpNom = avpNom;
+    results(k).avpFault = avpFault;
+    results(k).avpMit = avpMit;
+    results(k).tAvp = tAvp;
+    results(k).resFault = resFault;
+    results(k).resNom = resNom;
+    results(k).detMask = detMask;
+    results(k).detMaskNom = detMaskNom;
+
+    plotFdiResults(t, resFault, detMask, faultMask, detCfg, ...
+        sprintf('%s faulty case', sensorData(idx).name));
+    plotFdiResults(t, resNom, detMaskNom, false(size(t)), detCfg, ...
+        sprintf('%s nominal case', sensorData(idx).name));
+    plotNavErrors(tAvp, avpNom, avpFault, avpMit, trjAvp, sensorData(idx).name);
+end
 
 save('trj10ms_sensor_data_faults.mat', 'specs', 'faultCfg', 'detCfg', ...
-    'metricsFault', 'metricsNom', 'rmseNom', 'rmseFault', 'rmseMit', ...
-    'avpFault', 'avpMit', 't', 'voteMask', 'voteDetail', 'statusMask', ...
-    'refImuAll');
-
-plotFdiResults(t, resFault, detMaskFull, faultMask, detCfg, 'Faulty case');
-plotFdiResults(t, resNom, detMaskNomFull, false(size(t)), detCfg, ...
-    'Nominal case');
-plotNavErrors(t, avpNom, avpFault, avpMit, trjAvp);
-plotSensorOutputs(t, sensorDataFault, nSample);
+    'results', 't', 'refImuAll');
 
 %% helper functions
 function faultCfg = buildFaultConfig(t)
-%BUILDFAULTCONFIG Configure detectable faults for the ISIS sensor.
+%BUILDFAULTCONFIG Configure detectable faults for IRS sensors.
 %   faultCfg = BUILDFAULTCONFIG(t) returns a struct array with fault windows
 %   and magnitudes based on the time vector t.
     tEnd = t(end);
     faultCfg = struct( ...
         'name', {'gyro_step', 'acc_step'}, ...
         'tStart', {0.2 * tEnd, 0.6 * tEnd}, ...
-        'tEnd', {0.3 * tEnd, 0.7 * tEnd}, ...
-        'gyroDeg', {[0.5 0 0], []}, ...
-        'acc', {[], [0.02 0 0]});
+        'tEnd', {0.35 * tEnd, 0.75 * tEnd}, ...
+        'gyroDeg', {[0.6 -0.5 0.4], []}, ...
+        'acc', {[], [0.03 -0.02 0.015]});
 end
 
 function refImu = buildReferenceImu(sensorData, faultIdx, nSample)
@@ -290,26 +313,33 @@ function plotFdiResults(t, res, detMask, faultMask, detCfg, figTitle)
     ylim([-0.1 1.1]);
 end
 
-function plotNavErrors(t, avpNom, avpFault, avpMit, avpRef)
+function plotNavErrors(t, avpNom, avpFault, avpMit, avpRef, sensorName)
 %PLOTNAVERRORS Plot navigation errors for nominal/fault/mitigated cases.
-%   PLOTNAVERRORS(t, avpNom, avpFault, avpMit, avpRef) draws curves.
+%   PLOTNAVERRORS(t, avpNom, avpFault, avpMit, avpRef, sensorName) draws
+%   curves for the specified sensor.
     global glv
     [attNom, velNom, posNom] = navErrors(avpNom, avpRef, glv);
     [attFault, velFault, posFault] = navErrors(avpFault, avpRef, glv);
     [attMit, velMit, posMit] = navErrors(avpMit, avpRef, glv);
-    figure('Name', 'Navigation error comparison');
+    attNomNorm = vecnorm(attNom, 2, 2);
+    attFaultNorm = vecnorm(attFault, 2, 2);
+    attMitNorm = vecnorm(attMit, 2, 2);
+    velNomNorm = vecnorm(velNom, 2, 2);
+    velFaultNorm = vecnorm(velFault, 2, 2);
+    velMitNorm = vecnorm(velMit, 2, 2);
+    posNomNorm = vecnorm(posNom, 2, 2);
+    posFaultNorm = vecnorm(posFault, 2, 2);
+    posMitNorm = vecnorm(posMit, 2, 2);
+    figure('Name', sprintf('Navigation error comparison (%s)', sensorName));
     subplot(3, 1, 1);
-    plot(t, attNom(:, 1), 'b', t, attFault(:, 1), 'r', ...
-        t, attMit(:, 1), 'g');
+    plot(t, attNomNorm, 'b', t, attFaultNorm, 'r', t, attMitNorm, 'g');
     ylabel('Att err (deg)');
     legend('Nominal', 'Faulty', 'Mitigated');
     subplot(3, 1, 2);
-    plot(t, velNom(:, 1), 'b', t, velFault(:, 1), 'r', ...
-        t, velMit(:, 1), 'g');
+    plot(t, velNomNorm, 'b', t, velFaultNorm, 'r', t, velMitNorm, 'g');
     ylabel('Vel err (m/s)');
     subplot(3, 1, 3);
-    plot(t, posNom(:, 1), 'b', t, posFault(:, 1), 'r', ...
-        t, posMit(:, 1), 'g');
+    plot(t, posNomNorm, 'b', t, posFaultNorm, 'r', t, posMitNorm, 'g');
     xlabel('Time (s)');
     ylabel('Pos err (m)');
 end
