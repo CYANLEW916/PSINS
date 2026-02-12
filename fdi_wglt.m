@@ -1,7 +1,11 @@
 function [FD, FI, V_w] = fdi_wglt(Z, sigma_vec, cfg)
-% FDI_WGLT  Weighted Generalized Likelihood Test for fault detection and isolation.
+% FDI_WGLT  Weighted Generalized Likelihood Test for fault detection/isolation.
 %   [FD, FI, V_w] = FDI_WGLT(Z, sigma_vec, cfg) applies the weighted GLT
-%   algorithm that accounts for heterogeneous sensor noise characteristics.
+%   that handles heterogeneous sensor noise by pre-whitening measurements.
+%
+%   Detection:  P_w = V_w * W^{-1/2} * Z,  FD = P_w' * P_w
+%   Isolation:  FI(i) = (P_w'*V_w(:,i))^2 / (V_w(:,i)'*V_w(:,i))
+%   Threshold:  T_D = chi2inv(1-PFA, n-m) ≈ 16.81  (same as GLT)
 %
 %   Inputs:
 %     Z         - N x 9 measurement matrix
@@ -21,24 +25,22 @@ function [FD, FI, V_w] = fdi_wglt(Z, sigma_vec, cfg)
     % Compute weighted parity matrix
     [~, V_w, W_inv_half] = compute_parity_matrix(H, sigma_vec);
 
-    % Pre-allocate outputs
+    % Pre-allocate
     FD = zeros(N, 1);
     FI = zeros(N, n);
 
-    % Process each time step
     for k = 1:N
-        z = Z(k, :)';                 % 9 x 1 measurement vector
+        z = Z(k, :)';                 % 9x1
 
-        % Weighted parity vector
-        P_w = V_w * W_inv_half * z;   % (n-m) x 1
+        % Weighted parity vector: P_w = V_w * W^{-1/2} * z
+        P_w = V_w * W_inv_half * z;   % 6x1
 
-        % Detection function: FD = P_w' * P_w (already normalized by weighting)
+        % Detection function (already normalized by weighting)
         FD(k) = P_w' * P_w;
 
-        % Isolation function for each sensor
-        Vi_w = V_w * W_inv_half;      % weighted parity matrix applied to whitened space
+        % Isolation function using V_w columns
         for i = 1:n
-            Vi = Vi_w(:, i);
+            Vi = V_w(:, i);           % i-th column of V_w
             FI(k, i) = (P_w' * Vi)^2 / (Vi' * Vi);
         end
     end

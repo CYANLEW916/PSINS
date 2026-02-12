@@ -1,9 +1,12 @@
 % MAIN_SIMULATION  PPV-aided SWGLT fault detection for INS/ISIS redundant system.
 %   Generates flight trajectory, simulates sensor measurements for 2 INS + 1 ISIS,
-%   injects faults, runs three FDI algorithms (GLT, WGLT, SWGLT), and plots results.
+%   injects faults under three conditions, runs three FDI algorithms (GLT, WGLT,
+%   PPV-aided SWGLT), evaluates performance, and plots results.
 %
-% Requires: PSINS toolbox initialized (run psinsinit.m first).
-% See also  config, inject_fault, fdi_glt, fdi_wglt, fdi_swglt, plot_results.
+% Requires: PSINS toolbox initialized (run psinsinit.m from PSINS root first).
+%
+% See also  config, inject_fault, fdi_glt, fdi_wglt, fdi_swglt,
+%           evaluate_performance, plot_results.
 
 clear; close all; clc;
 
@@ -20,66 +23,58 @@ ts = cfg.ts;
 % =========================================================================
 fprintf('=== Step 1: Generating flight trajectory ===\n');
 
-trjFile = fullfile(fileparts(mfilename('fullpath')), 'trj_NLG_approach.mat');
-if exist(trjFile, 'file')
-    trj = trjfile(trjFile);
-    fprintf('Loaded existing trajectory from %s\n', trjFile);
+trjPath = fullfile(pwd, 'data', 'trj_NLG_approach.mat');
+if exist(trjPath, 'file')
+    trj = trjfile(trjPath);
+    fprintf('Loaded existing trajectory from %s\n', trjPath);
 else
-    % Generate trajectory following NLG approach waypoints (from test_SINS_trj_NLG)
     trj = generate_trajectory(ts);
-    trjfile(trjFile, trj);
-    fprintf('Generated and saved trajectory to %s\n', trjFile);
+    trjfile(trjPath, trj);
+    fprintf('Generated and saved trajectory to %s\n', trjPath);
 end
 
-% Extract reference IMU data (angular increments and velocity increments)
+% Extract reference IMU data
 imu_ref = trj.imu;          % Nx7: [dtheta_xyz, dv_xyz, time]
-avp_ref = trj.avp;          % Nx10: [att, vel, pos, time]
-N = size(imu_ref, 1);       % total number of samples
-t = imu_ref(:, 7);          % time vector
+N = size(imu_ref, 1);
+t = imu_ref(:, 7);          % time vector (s)
 T_total = t(end) - t(1);
 
-fprintf('Trajectory duration: %.1f s, Samples: %d, ts=%.3f s\n', T_total, N, ts);
+fprintf('Trajectory: %.1f s, %d samples, ts=%.3f s\n', T_total, N, ts);
 
 %% ========================================================================
 %  Step 2: Generate redundant sensor measurements (2 INS + 1 ISIS)
 % =========================================================================
 fprintf('\n=== Step 2: Generating sensor measurements ===\n');
 
-% Convert angular increments to angular rates and velocity increments to
-% specific forces for the FDI measurement model
-gyro_ref = imu_ref(:, 1:3) / ts;    % reference angular rate (rad/s)
-acc_ref  = imu_ref(:, 4:6) / ts;    % reference specific force (m/s^2)
+% Convert angular/velocity increments to rates/specific forces
+gyro_ref = imu_ref(:, 1:3) / ts;    % angular rate (rad/s)
+acc_ref  = imu_ref(:, 4:6) / ts;    % specific force (m/s^2)
 
-% Generate noisy measurements for each subsystem
-% INS1 (sensors 1-3): high precision
-noise_ins1_gyro = cfg.sigma_ins_gyro * randn(N, 3);
-noise_ins1_acc  = cfg.sigma_ins_acc  * randn(N, 3);
-
-% INS2 (sensors 4-6): high precision
-noise_ins2_gyro = cfg.sigma_ins_gyro * randn(N, 3);
-noise_ins2_acc  = cfg.sigma_ins_acc  * randn(N, 3);
-
-% ISIS (sensors 7-9): low precision
+% Generate noise for each subsystem
+% INS1 (sensors 1-3)
+noise_ins1_gyro = cfg.sigma_ins_gyro  * randn(N, 3);
+noise_ins1_acc  = cfg.sigma_ins_acc   * randn(N, 3);
+% INS2 (sensors 4-6)
+noise_ins2_gyro = cfg.sigma_ins_gyro  * randn(N, 3);
+noise_ins2_acc  = cfg.sigma_ins_acc   * randn(N, 3);
+% ISIS (sensors 7-9)
 noise_isis_gyro = cfg.sigma_isis_gyro * randn(N, 3);
 noise_isis_acc  = cfg.sigma_isis_acc  * randn(N, 3);
 
-% Assemble 9-sensor measurement vectors Z (N x 9)
-% Z = H * x_true + noise, where x_true is the 3-axis true value
-Z_gyro_clean = [gyro_ref, gyro_ref, gyro_ref];  % each subsystem measures same 3 axes
-Z_acc_clean  = [acc_ref,  acc_ref,  acc_ref];
+% Assemble 9-sensor measurement vectors: Z = H * x_true + noise
+Z_gyro = [gyro_ref + noise_ins1_gyro, ...
+          gyro_ref + noise_ins2_gyro, ...
+          gyro_ref + noise_isis_gyro];       % N x 9
 
-Z_gyro_noise = [noise_ins1_gyro, noise_ins2_gyro, noise_isis_gyro];
-Z_acc_noise  = [noise_ins1_acc,  noise_ins2_acc,  noise_isis_acc];
+Z_acc  = [acc_ref  + noise_ins1_acc, ...
+          acc_ref  + noise_ins2_acc, ...
+          acc_ref  + noise_isis_acc];        % N x 9
 
-Z_gyro = Z_gyro_clean + Z_gyro_noise;  % N x 9
-Z_acc  = Z_acc_clean  + Z_acc_noise;   % N x 9
-
-fprintf('Generated measurements: %d samples x 9 sensors (gyro + acc)\n', N);
+fprintf('Generated %d samples x 9 sensors (gyro + acc)\n', N);
 
 %% ========================================================================
-%  Step 3: Inject faults and run FDI for each condition
+%  Step 3: Run FDI for each fault condition
 % =========================================================================
-
 conditions = {'Condition 1: INS1 Y-axis Gyro Hard Fault', ...
               'Condition 2: INS2 X-axis Accel Hard Fault', ...
               'Condition 3: INS1 Z-axis Gyro Soft Fault'};
@@ -89,83 +84,73 @@ for cond = 1:3
     fprintf('=== %s ===\n', conditions{cond});
     fprintf('============================================================\n');
 
-    % Inject faults
-    if cond == 1
-        % Condition 1: gyro hard fault
-        Z_gyro_faulty = inject_fault(Z_gyro, t, cfg.fault1, 'hard');
-        Z_work = Z_gyro_faulty;
-        sigma_vec = cfg.sigma_gyro;
-        sensor_type = 'gyro';
-    elseif cond == 2
-        % Condition 2: acc hard fault
-        Z_acc_faulty = inject_fault(Z_acc, t, cfg.fault2, 'hard');
-        Z_work = Z_acc_faulty;
-        sigma_vec = cfg.sigma_acc;
-        sensor_type = 'acc';
-    else
-        % Condition 3: gyro soft fault
-        Z_gyro_faulty = inject_fault(Z_gyro, t, cfg.fault3, 'soft');
-        Z_work = Z_gyro_faulty;
-        sigma_vec = cfg.sigma_gyro;
-        sensor_type = 'gyro';
+    %% Inject faults
+    switch cond
+        case 1
+            Z_work     = inject_fault(Z_gyro, t, cfg.fault1, 'hard');
+            sigma_vec  = cfg.sigma_gyro;
+            sigma_uni  = cfg.sigma_ins_gyro;   % uniform sigma for GLT
+            fault_cfg  = cfg.fault1;
+        case 2
+            Z_work     = inject_fault(Z_acc, t, cfg.fault2, 'hard');
+            sigma_vec  = cfg.sigma_acc;
+            sigma_uni  = cfg.sigma_ins_acc;
+            fault_cfg  = cfg.fault2;
+        case 3
+            Z_work     = inject_fault(Z_gyro, t, cfg.fault3, 'soft');
+            sigma_vec  = cfg.sigma_gyro;
+            sigma_uni  = cfg.sigma_ins_gyro;
+            fault_cfg  = cfg.fault3;
     end
 
-    % Determine fault time mask (boolean vector: true during fault periods)
+    % Build fault time mask
+    fault_mask = false(N, 1);
     if cond <= 2
-        fault_cfg = eval(sprintf('cfg.fault%d', cond));
-        fault_mask = false(N, 1);
         for fi = 1:size(fault_cfg.intervals, 1)
-            fault_mask = fault_mask | (t >= fault_cfg.intervals(fi,1) & t <= fault_cfg.intervals(fi,2));
+            fault_mask = fault_mask | ...
+                (t >= fault_cfg.intervals(fi,1) & t <= fault_cfg.intervals(fi,2));
         end
     else
-        fault_mask = (t >= cfg.fault3.interval(1) & t <= cfg.fault3.interval(2));
+        fault_mask = (t >= fault_cfg.interval(1) & t <= fault_cfg.interval(2));
     end
 
-    % --- Run GLT ---
+    %% Run three algorithms
     fprintf('\n--- Running GLT ---\n');
-    [FD_glt, FI_glt, V_glt] = fdi_glt(Z_work, cfg);
+    [FD_glt,  FI_glt,  V_glt]  = fdi_glt(Z_work, sigma_uni, cfg);
 
-    % --- Run WGLT ---
     fprintf('--- Running WGLT ---\n');
     [FD_wglt, FI_wglt, V_wglt] = fdi_wglt(Z_work, sigma_vec, cfg);
 
-    % --- Run SWGLT ---
     fprintf('--- Running SWGLT ---\n');
     [FD_swglt, FI_swglt, T_adaptive] = fdi_swglt(Z_work, sigma_vec, cfg);
 
-    % --- Evaluate performance ---
+    %% Evaluate performance
     fprintf('\n--- Performance Evaluation ---\n');
-    if cond <= 2
-        is_soft = false;
-    else
-        is_soft = true;
-    end
+    is_soft = (cond == 3);
 
-    [stats_glt]   = evaluate_performance(FD_glt, cfg.T_D, fault_mask, 'GLT', is_soft, t);
-    [stats_wglt]  = evaluate_performance(FD_wglt, cfg.T_D, fault_mask, 'WGLT', is_soft, t);
-    [stats_swglt] = evaluate_performance(FD_swglt, T_adaptive, fault_mask, 'SWGLT', is_soft, t);
+    stats_glt   = evaluate_performance(FD_glt,   cfg.T_D,     fault_mask, 'GLT',   is_soft, t);
+    stats_wglt  = evaluate_performance(FD_wglt,  cfg.T_D,     fault_mask, 'WGLT',  is_soft, t);
+    stats_swglt = evaluate_performance(FD_swglt, T_adaptive,  fault_mask, 'SWGLT', is_soft, t);
 
-    % Print comparison table
-    fprintf('\n  %-8s  FDR=%6.2f%%  FAR=%6.2f%%  Accuracy=%6.2f%%', ...
+    % Summary table
+    fprintf('\n  Summary:\n');
+    fprintf('  %-8s  FDR=%6.2f%%  FAR=%6.2f%%  Accuracy=%6.2f%%', ...
         'GLT', stats_glt.FDR*100, stats_glt.FAR*100, stats_glt.Accuracy*100);
-    if is_soft, fprintf('  Delay=%.1fs', stats_glt.delay); end
-    fprintf('\n');
+    if is_soft, fprintf('  Delay=%.1fs', stats_glt.delay); end; fprintf('\n');
 
     fprintf('  %-8s  FDR=%6.2f%%  FAR=%6.2f%%  Accuracy=%6.2f%%', ...
         'WGLT', stats_wglt.FDR*100, stats_wglt.FAR*100, stats_wglt.Accuracy*100);
-    if is_soft, fprintf('  Delay=%.1fs', stats_wglt.delay); end
-    fprintf('\n');
+    if is_soft, fprintf('  Delay=%.1fs', stats_wglt.delay); end; fprintf('\n');
 
     fprintf('  %-8s  FDR=%6.2f%%  FAR=%6.2f%%  Accuracy=%6.2f%%', ...
         'SWGLT', stats_swglt.FDR*100, stats_swglt.FAR*100, stats_swglt.Accuracy*100);
-    if is_soft, fprintf('  Delay=%.1fs', stats_swglt.delay); end
-    fprintf('\n');
+    if is_soft, fprintf('  Delay=%.1fs', stats_swglt.delay); end; fprintf('\n');
 
-    % --- Plot results ---
+    %% Plot results
     if cond <= 2
-        fault_intervals = eval(sprintf('cfg.fault%d.intervals', cond));
+        fault_intervals = fault_cfg.intervals;
     else
-        fault_intervals = cfg.fault3.interval;
+        fault_intervals = fault_cfg.interval;
     end
 
     plot_results(t, FD_glt, FD_wglt, FD_swglt, ...
@@ -182,14 +167,11 @@ fprintf('\n=== Simulation Complete ===\n');
 %  Local function: Generate trajectory
 % =========================================================================
 function trj = generate_trajectory(ts)
-% GENERATE_TRAJECTORY  Build NLG approach trajectory using PSINS.
     global glv
 
     legSpeeds = [210, 200, 190, 170, 150, 140] * glv.kn;
-    accelTime = 60;
-    decelTime = 40;
-    turnRate = 3;
-    turnRollTime = 6;
+    accelTime = 60;  decelTime = 40;
+    turnRate = 3;    turnRollTime = 6;
     pitchRate = 0.5;
 
     % Waypoint definition
@@ -204,7 +186,6 @@ function trj = generate_trajectory(ts)
     W = fillWaypointAltitude(W);
 
     legs = waypointLegs(W, legSpeeds);
-
     avp0 = [[0; 0; legs(1).course]; [0; 0; 0]; [W(1).lat; W(1).lon; W(1).alt]];
 
     seg = trjsegment([], 'init', 0);
@@ -218,7 +199,7 @@ function trj = generate_trajectory(ts)
     currentPitch = 0;
     currentYaw = legs(1).course;
     if abs(legs(1).pitch) > 0.1*glv.deg
-        pitchTime = abs(legs(1).pitch)/glv.deg/pitchRate;
+        pitchTime = abs(legs(1).pitch) / glv.deg / pitchRate;
         if legs(1).pitch > 0
             seg = trjsegment(seg, 'headup', pitchTime, pitchRate);
         else
@@ -240,7 +221,6 @@ function trj = generate_trajectory(ts)
             end
             currentYaw = currentYaw + deltaYaw;
         end
-
         deltaPitch = legs(k).pitch - currentPitch;
         deltaPitchDeg = deltaPitch / glv.deg;
         if abs(deltaPitchDeg) > 0.1
@@ -252,16 +232,14 @@ function trj = generate_trajectory(ts)
             end
             currentPitch = currentPitch + deltaPitch;
         end
-
         targetSpeed = legs(k).speed;
         seg = adjustSpeed(seg, targetSpeed, currentSpeed, speedAccelRate, speedDecelRate);
         currentSpeed = targetSpeed;
-
         seg = trjsegment(seg, 'uniform', legs(k).time);
     end
 
     if abs(currentPitch) > 0.1*glv.deg
-        pitchTime = abs(currentPitch)/glv.deg/pitchRate;
+        pitchTime = abs(currentPitch) / glv.deg / pitchRate;
         if currentPitch > 0
             seg = trjsegment(seg, 'headdown', pitchTime, pitchRate);
         else
@@ -271,22 +249,22 @@ function trj = generate_trajectory(ts)
     seg = adjustSpeed(seg, 0, currentSpeed, speedAccelRate, speedDecelRate);
     seg = trjsegment(seg, 'uniform', 20);
 
-    % Generate at the trajectory ts, then downsample to desired ts
+    % Generate at 0.01s then downsample to cfg.ts
     trj_raw = trjsimu(avp0, seg.wat, 0.01, 1);
 
-    % Downsample to cfg.ts if needed
     if abs(ts - 0.01) > 1e-6
         ratio = round(ts / 0.01);
-        trj.imu = zeros(floor(size(trj_raw.imu, 1)/ratio), 7);
-        for idx = 1:size(trj.imu, 1)
+        nSamp = floor(size(trj_raw.imu, 1) / ratio);
+        trj.imu = zeros(nSamp, 7);
+        for idx = 1:nSamp
             rows = ((idx-1)*ratio+1) : (idx*ratio);
             trj.imu(idx, 1:3) = sum(trj_raw.imu(rows, 1:3), 1);
             trj.imu(idx, 4:6) = sum(trj_raw.imu(rows, 4:6), 1);
-            trj.imu(idx, 7) = trj_raw.imu(rows(end), 7);
+            trj.imu(idx, 7)   = trj_raw.imu(rows(end), 7);
         end
         trj.avp = trj_raw.avp(ratio:ratio:end, :);
-        if size(trj.avp, 1) > size(trj.imu, 1)
-            trj.avp = trj.avp(1:size(trj.imu, 1), :);
+        if size(trj.avp, 1) > nSamp
+            trj.avp = trj.avp(1:nSamp, :);
         end
     else
         trj.imu = trj_raw.imu;
@@ -298,13 +276,10 @@ end
 
 function wp = makeWP(name, role, lat_deg, lon_deg, alt, alt_src)
     global glv
-    wp.name = name;
-    wp.role = role;
-    wp.lat = lat_deg * glv.deg;
-    wp.lon = lon_deg * glv.deg;
-    wp.alt = alt;
-    wp.alt_src = alt_src;
-    wp.E = NaN; wp.N = NaN;
+    wp.name = name;  wp.role = role;
+    wp.lat = lat_deg * glv.deg;  wp.lon = lon_deg * glv.deg;
+    wp.alt = alt;  wp.alt_src = alt_src;
+    wp.E = NaN;  wp.N = NaN;
 end
 
 function W = fillWaypointAltitude(W)
@@ -315,21 +290,15 @@ function W = fillWaypointAltitude(W)
     else
         alts(isnan(alts)) = alts(idx);
     end
-    for k = 1:numel(W)
-        W(k).alt = alts(k);
-    end
+    for k = 1:numel(W), W(k).alt = alts(k); end
 end
 
 function legs = waypointLegs(W, speed)
     global glv
     n = numel(W);
-    legs = repmat(struct('label','', 'course',0, 'pitch',0, ...
-        'horizontal',0, 'vertical',0, 'track',0, 'time',0, 'speed',0), n-1, 1);
-    if isscalar(speed)
-        speeds = repmat(speed, n-1, 1);
-    else
-        speeds = speed(:);
-    end
+    legs = repmat(struct('label','','course',0,'pitch',0,...
+        'horizontal',0,'vertical',0,'track',0,'time',0,'speed',0), n-1, 1);
+    speeds = speed(:);
     for k = 1:n-1
         pos1 = [W(k).lat, W(k).lon, W(k).alt];
         pos2 = [W(k+1).lat, W(k+1).lon, W(k+1).alt];
@@ -337,17 +306,14 @@ function legs = waypointLegs(W, speed)
         enu = dxyz(end, 1:3);
         horizontal = hypot(enu(1), enu(2));
         vertical = enu(3);
-        course = atan2(enu(1), enu(2));
-        pitch = atan2(vertical, horizontal);
         legs(k).label = sprintf('%s -> %s', W(k).name, W(k+1).name);
-        legs(k).course = wrapToPi_(course);
-        legs(k).pitch = pitch;
+        legs(k).course = wrapToPi_(atan2(enu(1), enu(2)));
+        legs(k).pitch = atan2(vertical, horizontal);
         legs(k).horizontal = horizontal;
         legs(k).vertical = vertical;
         legs(k).track = sqrt(horizontal^2 + vertical^2);
-        legSpeed = speeds(k);
-        legs(k).time = horizontal / legSpeed;
-        legs(k).speed = legSpeed;
+        legs(k).speed = speeds(k);
+        legs(k).time = horizontal / speeds(k);
     end
 end
 
@@ -358,10 +324,8 @@ end
 function seg = adjustSpeed(seg, targetSpeed, currentSpeed, accelRate, decelRate)
     deltaV = targetSpeed - currentSpeed;
     if deltaV > 1e-3
-        lasting = deltaV / accelRate;
-        seg = trjsegment(seg, 'accelerate', lasting, [], accelRate);
+        seg = trjsegment(seg, 'accelerate', deltaV / accelRate, [], accelRate);
     elseif deltaV < -1e-3
-        lasting = -deltaV / decelRate;
-        seg = trjsegment(seg, 'deaccelerate', lasting, [], decelRate);
+        seg = trjsegment(seg, 'deaccelerate', -deltaV / decelRate, [], decelRate);
     end
 end

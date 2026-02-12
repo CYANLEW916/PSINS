@@ -30,14 +30,15 @@ function Z_faulty = inject_fault(Z, t, fault_cfg, fault_type)
 
     elseif strcmp(fault_type, 'soft')
         % Soft fault: linear ramp during specified interval
+        %   fault = rate * (t - t_start_ref), applied only within [t_start, t_end]
         t_start = fault_cfg.interval(1);
         t_end   = fault_cfg.interval(2);
         rate    = fault_cfg.rate;
-        t_ref   = fault_cfg.t_start_ref;
+        t_ref   = fault_cfg.t_start_ref;  % reference time (e.g. 160s)
 
         mask = (t >= t_start) & (t <= t_end);
         t_fault = t(mask);
-        ramp = rate * (t_fault - t_ref);
+        ramp = rate * (t_fault - t_ref);   % 0.02*(t-160) deg/h in rad/s
         Z_faulty(mask, idx) = Z_faulty(mask, idx) + ramp;
     end
 
