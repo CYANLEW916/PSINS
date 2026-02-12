@@ -24,8 +24,8 @@ function [V, V_w, W_inv_half] = compute_parity_matrix(H, sigma_vec)
     r = rank(H);  % r = 3
     V = U(:, r+1:end)';  % (n-r) x n
 
-    % Verify orthogonality
-    assert(norm(V * H) < 1e-10, 'V*H ~= 0');
+    % Verify orthogonality (relative tolerance)
+    assert(norm(V * H) / max(norm(H), 1) < 1e-10, 'V*H ~= 0');
     assert(norm(V * V' - eye(n - r)) < 1e-10, 'V*V'' ~= I');
 
     %% Weighted parity matrix
@@ -37,8 +37,8 @@ function [V, V_w, W_inv_half] = compute_parity_matrix(H, sigma_vec)
         r_w = rank(H_w);
         V_w = U_w(:, r_w+1:end)';                 % (n-r) x n weighted parity matrix
 
-        % Verify: V_w * H_w = V_w * W^{-1/2} * H ≈ 0
-        assert(norm(V_w * H_w) < 1e-10, 'V_w * W^{-1/2} * H ~= 0');
+        % Verify: V_w * H_w = V_w * W^{-1/2} * H ≈ 0 (relative tolerance)
+        assert(norm(V_w * H_w) / max(norm(H_w), 1) < 1e-10, 'V_w * W^{-1/2} * H ~= 0');
     else
         V_w = [];
         W_inv_half = [];
