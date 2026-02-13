@@ -56,7 +56,7 @@ function cfg = config()
     cfg.fault3.type = 'gyro';
     cfg.fault3.interval = [260 310];    % time interval (s)
     cfg.fault3.rate = 0.02 * dph2rps;   % fault rate 0.02 deg/h per second
-    cfg.fault3.t_start_ref = 160;       % reference start time for ramp: fault = rate*(t-160)
+    cfg.fault3.t_start_ref = cfg.fault3.interval(1);  % reference start time for ramp
 
     %% GLT parameters
     cfg.PFA = 0.01;                      % probability of false alarm
