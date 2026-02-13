@@ -5,8 +5,8 @@ function T_df = compute_adaptive_threshold(H, V_w, sigma_vec, K)
 %
 %   For sensor i, tolerable fault amplitude:
 %     f_t(i) = sigma_i * sqrt( K * h_i * (H'H) * h_i' + 1/||V_w(:,i)||^2 )
-%   Adaptive threshold for sensor i:
-%     T_df(i) = ||V_w(:,i)||^2 * f_t(i)^2
+%   Adaptive threshold for sensor i (whitened space):
+%     T_df(i) = ||V_w(:,i)||^2 * (f_t(i) / sigma_i)^2
 %   Final threshold = min over all sensors.
 %
 %   Inputs:
@@ -31,11 +31,13 @@ function T_df = compute_adaptive_threshold(H, V_w, sigma_vec, K)
         Vi = V_w(:, i);                          % (n-m) x 1
         Vi_norm_sq = Vi' * Vi;                   % ||V_w(:,i)||^2
 
-        % Tolerable fault amplitude
+        % Tolerable fault amplitude (physical units: rad/s or m/s^2)
         f_t_i = sigma_i * sqrt(K * (h_i * HTH * h_i') + 1 / Vi_norm_sq);
 
-        % Adaptive threshold for this sensor
-        T_df_all(i) = Vi_norm_sq * f_t_i^2;
+        % Adaptive threshold for this sensor (whitened space)
+        % The test statistic FD = P_r'*P_r operates in whitened coordinates
+        % where fault amplitude is f/sigma_i, so threshold uses (f_t/sigma_i)^2
+        T_df_all(i) = Vi_norm_sq * (f_t_i / sigma_i)^2;
     end
 
     % Most sensitive sensor determines detection threshold
