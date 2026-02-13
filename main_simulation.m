@@ -79,6 +79,9 @@ conditions = {'Condition 1: INS1 Y-axis Gyro Hard Fault', ...
               'Condition 2: INS2 X-axis Accel Hard Fault', ...
               'Condition 3: INS1 Z-axis Gyro Soft Fault'};
 
+% Pre-allocate structure array for cross-condition comparison
+all_results = struct();
+
 for cond = 1:3
     fprintf('\n============================================================\n');
     fprintf('=== %s ===\n', conditions{cond});
@@ -146,7 +149,7 @@ for cond = 1:3
         'SWGLT', stats_swglt.FDR*100, stats_swglt.FAR*100, stats_swglt.Accuracy*100);
     if is_soft, fprintf('  Delay=%.1fs', stats_swglt.delay); end; fprintf('\n');
 
-    %% Plot results
+    %% Plot per-condition results
     if cond <= 2
         fault_intervals = fault_cfg.intervals;
     else
@@ -158,7 +161,29 @@ for cond = 1:3
                  FI_glt, FI_wglt, FI_swglt, ...
                  fault_mask, fault_intervals, ...
                  cond, conditions{cond}, cfg);
+
+    %% Store results for cross-condition comparison
+    all_results(cond).FD_glt    = FD_glt;
+    all_results(cond).FD_wglt   = FD_wglt;
+    all_results(cond).FD_swglt  = FD_swglt;
+    all_results(cond).FI_glt    = FI_glt;
+    all_results(cond).FI_wglt   = FI_wglt;
+    all_results(cond).FI_swglt  = FI_swglt;
+    all_results(cond).T_D       = cfg.T_D;
+    all_results(cond).T_adaptive = T_adaptive;
+    all_results(cond).fault_mask = fault_mask;
+    all_results(cond).stats_glt  = stats_glt;
+    all_results(cond).stats_wglt = stats_wglt;
+    all_results(cond).stats_swglt = stats_swglt;
+    all_results(cond).t          = t;
+    all_results(cond).cond_title = conditions{cond};
 end
+
+%% ========================================================================
+%  Step 4: Comprehensive cross-condition comparison
+% =========================================================================
+fprintf('\n=== Step 4: Generating comprehensive comparison visualizations ===\n');
+plot_comprehensive_comparison(all_results, cfg);
 
 fprintf('\n=== Simulation Complete ===\n');
 
