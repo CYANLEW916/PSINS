@@ -153,6 +153,9 @@ for cond = 1:3
         'SWGLT', stats_swglt.FDR*100, stats_swglt.FAR*100, stats_swglt.Accuracy*100);
     if is_soft, fprintf('  Delay=%.1fs', stats_swglt.delay); end; fprintf('\n');
 
+    fprintf(['  Note: GLT FAR may be higher when INS/ISIS noise levels differ, ' ...
+             'because GLT assumes a uniform sigma model.\n']);
+
     %% Plot results
     if cond <= 2
         fault_intervals = fault_cfg.intervals;

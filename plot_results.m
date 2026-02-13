@@ -53,7 +53,11 @@ function plot_results(t, FD_glt, FD_wglt, FD_swglt, ...
         hTh = yline(thresholds{m}, 'r--', 'LineWidth', 1.5);
 
         ylabel('FD');
-        title(sprintf('%s - %s', methods{m}, cond_title));
+        if strcmp(methods{m}, 'GLT')
+            title(sprintf('%s - %s (uniform sigma assumption)', methods{m}, cond_title));
+        else
+            title(sprintf('%s - %s', methods{m}, cond_title));
+        end
         xlim([t(1) t(end)]);
         ylim(yl);
         if m == 3

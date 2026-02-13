@@ -54,3 +54,24 @@ Microsoft Windows 7 (SP1) + MATLAB 8.2.0 (R2013b) + CPU 2.1GHz + RAM 2.0GB.
    trajectory example.
 6. Run `psins\demos\test_SINS_IRS_ISIS.m` to simulate IRS1/2 and ISIS sensor
    data based on the trj_NLG_approach.mat trajectory.
+
+## 5. GLT vs WGLT/SWGLT Applicable Assumptions
+
+In the INS/ISIS redundant sensor setting, GLT is derived under a **uniform sigma assumption**,
+which means each measurement channel is treated as having the same noise level. This
+assumption is convenient but can be mismatched with practice when INS and ISIS sensors have
+heterogeneous noise characteristics.
+
+When the channel noise variances are different, GLT's test statistic is no longer optimally
+normalized, so nominally high-noise channels can contribute disproportionately to the detection
+statistic. In this case, the false alarm rate (FAR) of GLT can be biased high, especially during
+non-fault periods dominated by variance mismatch.
+
+WGLT and SWGLT are designed to handle this heteroscedastic setting better:
+
+- **WGLT** uses per-channel variance weighting to account for unequal sensor noise.
+- **SWGLT** further adapts thresholding (and weighting behavior in this implementation),
+  improving robustness under changing noise and soft-fault scenarios.
+
+Therefore, for INS/ISIS fusion where noise levels differ across sensor groups, WGLT/SWGLT are
+recommended over GLT for more stable FAR control and overall detection reliability.
