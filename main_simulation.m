@@ -101,6 +101,13 @@ for cond = 1:3
             sigma_vec  = cfg.sigma_gyro;
             sigma_uni  = cfg.sigma_ins_gyro;
             fault_cfg  = cfg.fault3;
+            if isfield(fault_cfg, 't_start_ref') && ~isempty(fault_cfg.t_start_ref)
+                t_ref = fault_cfg.t_start_ref;
+            else
+                t_ref = fault_cfg.interval(1);
+            end
+            fprintf('Soft fault config: interval=[%.1f, %.1f] s, rate=%.4e, t_ref=%.1f s\n', ...
+                fault_cfg.interval(1), fault_cfg.interval(2), fault_cfg.rate, t_ref);
     end
 
     % Build fault time mask

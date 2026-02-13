@@ -34,11 +34,15 @@ function Z_faulty = inject_fault(Z, t, fault_cfg, fault_type)
         t_start = fault_cfg.interval(1);
         t_end   = fault_cfg.interval(2);
         rate    = fault_cfg.rate;
-        t_ref   = fault_cfg.t_start_ref;  % reference time (e.g. 160s)
+        if isfield(fault_cfg, 't_start_ref') && ~isempty(fault_cfg.t_start_ref)
+            t_ref = fault_cfg.t_start_ref;
+        else
+            t_ref = t_start;
+        end
 
         mask = (t >= t_start) & (t <= t_end);
         t_fault = t(mask);
-        ramp = rate * (t_fault - t_ref);   % 0.02*(t-160) deg/h in rad/s
+        ramp = rate * (t_fault - t_ref);
         Z_faulty(mask, idx) = Z_faulty(mask, idx) + ramp;
     end
 
