@@ -34,17 +34,20 @@ function plot_results(t, FD_glt, FD_wglt, FD_swglt, ...
 
         % Shade fault intervals (light red)
         for fi = 1:size(fault_intervals, 1)
-            patch([fault_intervals(fi,1) fault_intervals(fi,2) ...
+            h_p = patch([fault_intervals(fi,1) fault_intervals(fi,2) ...
                    fault_intervals(fi,2) fault_intervals(fi,1)], ...
                   [yl(1) yl(1) yl(2) yl(2)], ...
                   [1 0.9 0.9], 'EdgeColor', 'none', 'FaceAlpha', 0.5);
+            if fi == 1
+                h_fault = h_p;  % save first patch handle for legend
+            end
         end
 
         % Detection function
-        plot(t, FDs{m}, 'Color', colors_m{m}, 'LineWidth', 0.5);
+        h_fd = plot(t, FDs{m}, 'Color', colors_m{m}, 'LineWidth', 0.5);
 
         % Threshold (red dashed)
-        yline(thresholds{m}, 'r--', 'LineWidth', 1.5);
+        h_th = yline(thresholds{m}, 'r--', 'LineWidth', 1.5);
 
         ylabel('FD');
         title(sprintf('%s - %s', methods{m}, cond_title));
@@ -53,7 +56,7 @@ function plot_results(t, FD_glt, FD_wglt, FD_swglt, ...
         if m == 3
             xlabel('Time (s)');
         end
-        legend('Fault Period', 'Detection Function', 'Threshold', 'Location', 'best');
+        legend([h_fault, h_fd, h_th], 'Fault Period', 'Detection Function', 'Threshold', 'Location', 'best');
         grid on;
         hold off;
     end
