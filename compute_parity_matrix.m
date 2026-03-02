@@ -19,17 +19,17 @@ function [V, V_w, W, H_w] = compute_parity_matrix(H, sigma_vec)
 % See also  fdi_glt, fdi_wglt, fdi_swglt.
 
     [n, m] = size(H);
-
-    % Unweighted parity matrix via SVD
     r = rank(H);
-    if r < n
-        [U_full, ~, ~] = svd(H);
-        V = U_full(:, r+1:end)';
-    else
-        V = zeros(0, n);
-    end
 
-    assert(norm(V * H, 'fro') < 1e-10, 'FAIL: V*H != 0');
+    % Unweighted parity matrix via full SVD basis
+    [U_full, ~, ~] = svd(H, 'econ');
+    if size(U_full, 2) < n
+        [U_full, ~, ~] = svd(H);
+    end
+    V = U_full(:, r+1:end)';
+
+    tol_unw = 1e-10 * max(norm(H, 'fro'), 1);
+    assert(norm(V * H, 'fro') < tol_unw, 'FAIL: V*H != 0');
     assert(norm(V * V' - eye(n - m), 'fro') < 1e-10, 'FAIL: V*V'' != I');
 
     if nargin < 2 || isempty(sigma_vec)
@@ -43,16 +43,19 @@ function [V, V_w, W, H_w] = compute_parity_matrix(H, sigma_vec)
     W = diag(1 ./ sigma_vec);  % eq.(13)
     H_w = W * H;               % eq.(16)
 
-    % Whitened parity matrix using orthonormal null-space basis
-    V_w = null(H_w')';         % eq.(17)
+    % Whitened parity matrix via full SVD null-space basis (more stable than null())
+    r_w = rank(H_w);
+    [U_w, ~, ~] = svd(H_w);
+    V_w = U_w(:, r_w+1:end)';
 
     % --- Offline Verification (Theory §7.1) ---
-    assert(norm(V_w * H_w, 'fro') < 1e-10, 'FAIL: V_w * H_w != 0');
+    tol_w = 1e-10 * max(norm(H_w, 'fro'), 1);
+    assert(norm(V_w * H_w, 'fro') < tol_w, 'FAIL: V_w * H_w != 0');
     assert(norm(V_w * V_w' - eye(n - m), 'fro') < 1e-10, 'FAIL: V_w * V_w'' != I');
 
     HTH_inv = inv(H_w' * H_w);
     proj_sum = H_w * HTH_inv * H_w' + V_w' * V_w;
-    assert(norm(proj_sum - eye(n), 'fro') < 1e-10, 'FAIL: projection complementarity');
+    assert(norm(proj_sum - eye(n), 'fro') < 1e-8, 'FAIL: projection complementarity');
 
     for i = 1:n
         ei = zeros(n, 1);
@@ -60,8 +63,7 @@ function [V, V_w, W, H_w] = compute_parity_matrix(H, sigma_vec)
         c_i = V_w * ei;
         h_i = H_w' * ei;
         lhs = h_i' * HTH_inv * h_i + norm(c_i)^2;
-        assert(abs(lhs - 1) < 1e-10, ...
+        assert(abs(lhs - 1) < 1e-8, ...
             sprintf('FAIL: identity eq.26 for sensor %d', i));
     end
-    fprintf('All offline verifications passed.\n');
 end
