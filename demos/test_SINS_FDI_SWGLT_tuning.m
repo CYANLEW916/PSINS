@@ -25,9 +25,10 @@ for ir = 1:numel(rho_list)
             fprintf('Test tuple: rho=%.2f, P_isol=%.2f, N_dwell=%d\n', ...
                 cfg.rho_threshold, cfg.P_isol, cfg.N_dwell);
 
-            % Reuse existing simulation script behavior with tuned cfg
+            % Run in base workspace to avoid main_simulation 'clear'
+            % wiping this script's loop indices (ir/ip/id).
             assignin('base', 'cfg_override', cfg);
-            run('main_simulation.m');
+            evalin('base', 'main_simulation');
             evalin('base', 'clear cfg_override');
         end
     end
