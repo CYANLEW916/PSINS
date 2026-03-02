@@ -54,3 +54,20 @@ Microsoft Windows 7 (SP1) + MATLAB 8.2.0 (R2013b) + CPU 2.1GHz + RAM 2.0GB.
    trajectory example.
 6. Run `psins\demos\test_SINS_IRS_ISIS.m` to simulate IRS1/2 and ISIS sensor
    data based on the trj_NLG_approach.mat trajectory.
+
+## 5. Heterogeneous IRS/ISIS fault detection demo
+
+A sliding-window whitened GLRT (WGLT) implementation for the heterogeneous
+`2 INS + 1 ISIS` setup is provided in:
+
+- `fdi_wglt/fdi_precompute_model.m`
+- `fdi_wglt/fdi_generate_redundant_measurements.m`
+- `fdi_wglt/fdi_run_sliding_wglt.m`
+- `demos/test_FDI_WGLT_IRS_ISIS.m`
+- `demos/test_FDI_WGLT_fault_campaign.m`
+
+Run `demos/test_FDI_WGLT_IRS_ISIS.m` after `psinsinit` for a single-case example.
+
+Run `demos/test_FDI_WGLT_fault_campaign.m` to reproduce a multi-case campaign
+(step/ramp windows for gyro and accelerometer channels), with per-case plots and
+summary metrics (detection rate, isolation accuracy, and delay).
