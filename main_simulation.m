@@ -1,7 +1,7 @@
-% MAIN_SIMULATION  PPV-aided SWGLT fault detection for INS/ISIS redundant system.
+% MAIN_SIMULATION  SWGLT fault detection for INS/ISIS redundant system.
 %   Generates flight trajectory, simulates sensor measurements for 2 INS + 1 ISIS,
 %   injects faults under three conditions, runs three FDI algorithms (GLT, WGLT,
-%   PPV-aided SWGLT), evaluates performance, and plots results.
+%   SWGLT), evaluates performance, and plots results.
 %
 % Requires: PSINS toolbox initialized (run psinsinit.m from PSINS root first).
 %
@@ -16,6 +16,9 @@ rng(42);
 
 %% Load configuration
 cfg = config();
+if exist('cfg_override', 'var')
+    cfg = cfg_override;
+end
 ts = cfg.ts;
 
 %% ========================================================================
@@ -129,7 +132,12 @@ for cond = 1:3
     [FD_wglt, FI_wglt, V_wglt] = fdi_wglt(Z_work, sigma_vec, cfg);
 
     fprintf('--- Running SWGLT ---\n');
-    [FD_swglt, FI_swglt, T_adaptive] = fdi_swglt(Z_work, sigma_vec, cfg);
+    results_swglt = fdi_swglt(Z_work, cfg.H, sigma_vec, cfg);
+    FD_swglt = results_swglt.FD_energy;
+    FI_swglt = results_swglt.FI;
+    iso_swglt = results_swglt.isolated;
+    fmag_swglt = results_swglt.f_hat;
+    T_adaptive = results_swglt.T_adaptive;
 
     %% Evaluate performance
     fprintf('\n--- Performance Evaluation ---\n');
@@ -137,7 +145,8 @@ for cond = 1:3
 
     stats_glt   = evaluate_performance(FD_glt,   cfg.T_D,     fault_mask, 'GLT',   is_soft, t);
     stats_wglt  = evaluate_performance(FD_wglt,  cfg.T_D,     fault_mask, 'WGLT',  is_soft, t);
-    stats_swglt = evaluate_performance(FD_swglt, T_adaptive,  fault_mask, 'SWGLT', is_soft, t);
+    stats_swglt = evaluate_performance(FD_swglt, T_adaptive, fault_mask, ...
+        'SWGLT', is_soft, t, iso_swglt, results_swglt.iso_status, fault_cfg.sensor_idx);
 
     % Summary table
     fprintf('\n  Summary:\n');
@@ -167,7 +176,7 @@ for cond = 1:3
                  cfg.T_D, T_adaptive, ...
                  FI_glt, FI_wglt, FI_swglt, ...
                  fault_mask, fault_intervals, ...
-                 cond, conditions{cond}, cfg);
+                 cond, conditions{cond}, cfg, results_swglt, fault_cfg.sensor_idx);
 end
 
 fprintf('\n=== Simulation Complete ===\n');
