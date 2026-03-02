@@ -116,11 +116,19 @@ end
 function evtIdx = time_events_to_index(events, t)
 %TIME_EVENTS_TO_INDEX Convert event windows from seconds to sample indices.
 
-    evtIdx = events;
-    for k = 1:numel(events)
-        evtIdx(k).startIdx = find(t >= events(k).startT, 1, 'first');
-        evtIdx(k).endIdx = find(t <= events(k).endT, 1, 'last');
-        evtIdx(k) = rmfield(evtIdx(k), {'startT', 'endT', 'amp'});
+    nEvt = numel(events);
+    evtIdx = repmat(struct('sensorIdx', 0, 'startIdx', 1, 'endIdx', 1, ...
+        'type', 'step', 'amplitude', 0), nEvt, 1);
+
+    for k = 1:nEvt
+        evtIdx(k).sensorIdx = events(k).sensorIdx;
+        k0 = find(t >= events(k).startT, 1, 'first');
+        k1 = find(t <= events(k).endT, 1, 'last');
+        if isempty(k0), k0 = 1; end
+        if isempty(k1), k1 = numel(t); end
+        evtIdx(k).startIdx = k0;
+        evtIdx(k).endIdx = k1;
+        evtIdx(k).type = events(k).type;
         evtIdx(k).amplitude = events(k).amp;
     end
 end
