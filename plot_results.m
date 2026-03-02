@@ -1,17 +1,30 @@
-function plot_results(t, FD_glt, FD_wglt, FD_swglt, ...
-    T_D, T_adaptive, ...
-    FI_glt, FI_wglt, FI_swglt, ...
-    fault_mask, fault_intervals, ...
-    cond_num, cond_title, cfg, results_swglt, true_fault_sensor)
+function plot_results(t, FD_glt, FD_wglt, FD_swglt, T_D, T_adaptive, FI_glt, ...
+    FI_wglt, FI_swglt, fault_mask, fault_intervals, cond_num, cond_title, cfg, varargin)
 % PLOT_RESULTS  Plot fault detection, isolation, and SWGLT diagnostics.
-%   Generates:
-%     (1) Detection curves for GLT/WGLT/SWGLT
-%     (2) Isolation bar charts using FI means
-%     (3) SWGLT isolation robustness diagnostics (margin + posterior)
+%   plot_results(..., cfg) plots detection/isolation summaries for GLT/WGLT/SWGLT.
+%   plot_results(..., cfg, results_swglt, true_fault_sensor) also plots SWGLT
+%   isolation diagnostics (margin ratio and posterior probability trends).
+%
+%   Inputs:
+%     t, FD_*, FI_*  - simulation timeline and statistics for each method
+%     T_D            - fixed GLT/WGLT threshold
+%     T_adaptive     - adaptive SWGLT threshold
+%     fault_mask     - logical mask indicating fault-present samples
+%     fault_intervals- intervals used for shaded fault regions
+%     cond_num/title - condition metadata for figure naming
+%     cfg            - configuration structure with isolation thresholds
+%     varargin       - optional: {results_swglt, true_fault_sensor}
 
-    sensor_labels = {'INS1-X','INS1-Y','INS1-Z', ...
-                     'INS2-X','INS2-Y','INS2-Z', ...
-                     'ISIS-X','ISIS-Y','ISIS-Z'};
+    results_swglt = [];
+    true_fault_sensor = [];
+    if numel(varargin) >= 2
+        results_swglt = varargin{1};
+        true_fault_sensor = varargin{2};
+    end
+
+    sensor_labels = {'INS1-X', 'INS1-Y', 'INS1-Z', ...
+                     'INS2-X', 'INS2-Y', 'INS2-Z', ...
+                     'ISIS-X', 'ISIS-Y', 'ISIS-Z'};
 
     colors_m = {[0.2 0.4 0.8], [0.8 0.5 0.1], [0.1 0.7 0.3]};
     methods = {'GLT', 'WGLT', 'SWGLT'};
@@ -98,7 +111,7 @@ function plot_results(t, FD_glt, FD_wglt, FD_swglt, ...
         saveas(gcf, sprintf('cond%d_isolation.png', cond_num));
     end
 
-    if nargin < 16 || isempty(results_swglt)
+    if isempty(results_swglt) || isempty(true_fault_sensor)
         return;
     end
 
