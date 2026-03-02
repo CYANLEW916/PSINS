@@ -1,3 +1,8 @@
 *.asv
 [Dd]ebug/
 [Rr]elease/
+
+# FDI output files (generated at runtime)
+fdi/output/figures/*.fig
+fdi/output/figures/*.png
+fdi/output/data/*.mat

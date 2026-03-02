@@ -17,9 +17,13 @@ function plot_results(t, FD_glt, FD_wglt, FD_swglt, T_D, T_adaptive, FI_glt, ...
 
     results_swglt = [];
     true_fault_sensor = [];
+    fig_dir = '.';
     if numel(varargin) >= 2
         results_swglt = varargin{1};
         true_fault_sensor = varargin{2};
+    end
+    if numel(varargin) >= 3
+        fig_dir = varargin{3};
     end
 
     sensor_labels = {'INS1-X', 'INS1-Y', 'INS1-Z', ...
@@ -82,8 +86,8 @@ function plot_results(t, FD_glt, FD_wglt, FD_swglt, T_D, T_adaptive, FI_glt, ...
         hold off;
     end
 
-    saveas(gcf, sprintf('cond%d_detection.fig', cond_num));
-    saveas(gcf, sprintf('cond%d_detection.png', cond_num));
+    saveas(gcf, fullfile(fig_dir, sprintf('cond%d_detection.fig', cond_num)));
+    saveas(gcf, fullfile(fig_dir, sprintf('cond%d_detection.png', cond_num)));
 
     fault_idx = find(fault_mask);
     if ~isempty(fault_idx)
@@ -107,8 +111,8 @@ function plot_results(t, FD_glt, FD_wglt, FD_swglt, T_D, T_adaptive, FI_glt, ...
         end
 
         sgtitle(cond_title);
-        saveas(gcf, sprintf('cond%d_isolation.fig', cond_num));
-        saveas(gcf, sprintf('cond%d_isolation.png', cond_num));
+        saveas(gcf, fullfile(fig_dir, sprintf('cond%d_isolation.fig', cond_num)));
+        saveas(gcf, fullfile(fig_dir, sprintf('cond%d_isolation.png', cond_num)));
     end
 
     if isempty(results_swglt) || isempty(true_fault_sensor)
@@ -154,6 +158,6 @@ function plot_results(t, FD_glt, FD_wglt, FD_swglt, T_D, T_adaptive, FI_glt, ...
            sprintf('Sensor %d (competitor)', comp_sensor), 'Threshold');
     grid on;
 
-    saveas(gcf, sprintf('cond%d_swglt_diagnostics.fig', cond_num));
-    saveas(gcf, sprintf('cond%d_swglt_diagnostics.png', cond_num));
+    saveas(gcf, fullfile(fig_dir, sprintf('cond%d_swglt_diagnostics.fig', cond_num)));
+    saveas(gcf, fullfile(fig_dir, sprintf('cond%d_swglt_diagnostics.png', cond_num)));
 end

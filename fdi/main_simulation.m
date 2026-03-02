@@ -1,14 +1,22 @@
 % MAIN_SIMULATION  SWGLT fault detection for INS/ISIS redundant system.
 %   Generates flight trajectory, simulates sensor measurements for 2 INS + 1 ISIS,
-%   injects faults under three conditions, runs three FDI algorithms (GLT, WGLT,
-%   SWGLT), evaluates performance, and plots results.
+%   injects faults under three conditions, runs four FDI approaches (Raw ISIS
+%   cross-check, GLT, WGLT, SWGLT), evaluates performance, and plots results
+%   including comparison figures.
 %
-% Requires: PSINS toolbox initialized (run psinsinit.m from PSINS root first).
+% Run from the fdi/ directory. PSINS toolbox is auto-initialized.
 %
-% See also  config, inject_fault, fdi_glt, fdi_wglt, fdi_swglt,
-%           evaluate_performance, plot_results.
+% See also  config, inject_fault, fdi_glt, fdi_wglt, fdi_swglt, fdi_raw_isis,
+%           evaluate_performance, plot_results, plot_comparison.
 
 clear; close all; clc;
+
+%% Path setup — ensure PSINS toolbox is available
+fdi_dir = fileparts(mfilename('fullpath'));
+if isempty(fdi_dir), fdi_dir = pwd; end
+psins_root = fullfile(fdi_dir, '..');
+addpath(psins_root);
+run(fullfile(psins_root, 'psinsinit.m'));
 
 %% Initialize PSINS toolbox
 glvs;
@@ -18,12 +26,19 @@ rng(42);
 cfg = config();
 ts = cfg.ts;
 
+%% Create output directories
+output_dir = fullfile(fdi_dir, 'output');
+fig_dir    = fullfile(output_dir, 'figures');
+data_dir   = fullfile(output_dir, 'data');
+if ~exist(fig_dir, 'dir'),  mkdir(fig_dir);  end
+if ~exist(data_dir, 'dir'), mkdir(data_dir); end
+
 %% ========================================================================
 %  Step 1: Generate flight trajectory using NLG approach
 % =========================================================================
 fprintf('=== Step 1: Generating flight trajectory ===\n');
 
-trjPath = fullfile(pwd, 'data', 'trj_NLG_approach.mat');
+trjPath = fullfile(psins_root, 'data', 'trj_NLG_approach.mat');
 if exist(trjPath, 'file')
     trj = trjfile(trjPath);
     fprintf('Loaded existing trajectory from %s\n', trjPath);
@@ -78,6 +93,9 @@ fprintf('Generated %d samples x 9 sensors (gyro + acc)\n', N);
 conditions = {'Condition 1: INS1 Y-axis Gyro Hard Fault', ...
               'Condition 2: INS2 X-axis Accel Hard Fault', ...
               'Condition 3: INS1 Z-axis Gyro Soft Fault'};
+
+% Pre-allocate results storage for comparison plots
+results_all = struct();
 
 for cond = 1:3
     fprintf('\n============================================================\n');
@@ -145,8 +163,25 @@ for cond = 1:3
     stats_swglt = evaluate_performance(FD_swglt, T_adaptive, fault_mask, ...
         'SWGLT', is_soft, t, iso_swglt, results_swglt.iso_status, fault_cfg.sensor_idx);
 
+    %% Run raw ISIS cross-check baseline
+    fprintf('--- Running Raw ISIS Cross-check ---\n');
+    [FD_raw, FI_raw, T_raw] = fdi_raw_isis(Z_work, sigma_vec);
+
+    % Evaluate raw ISIS for the INS unit containing the faulted sensor
+    if fault_cfg.sensor_idx <= 3
+        ins_idx = 1;
+    else
+        ins_idx = 2;
+    end
+    stats_raw = evaluate_performance(FD_raw(:, ins_idx), T_raw, fault_mask, ...
+        'RawISIS', is_soft, t);
+
     % Summary table
     fprintf('\n  Summary:\n');
+    fprintf('  %-8s  FDR=%6.2f%%  FAR=%6.2f%%  Accuracy=%6.2f%%', ...
+        'RawISIS', stats_raw.FDR*100, stats_raw.FAR*100, stats_raw.Accuracy*100);
+    if is_soft, fprintf('  Delay=%.1fs', stats_raw.delay); end; fprintf('\n');
+
     fprintf('  %-8s  FDR=%6.2f%%  FAR=%6.2f%%  Accuracy=%6.2f%%', ...
         'GLT', stats_glt.FDR*100, stats_glt.FAR*100, stats_glt.Accuracy*100);
     if is_soft, fprintf('  Delay=%.1fs', stats_glt.delay); end; fprintf('\n');
@@ -173,8 +208,38 @@ for cond = 1:3
                  cfg.T_D, T_adaptive, ...
                  FI_glt, FI_wglt, FI_swglt, ...
                  fault_mask, fault_intervals, ...
-                 cond, conditions{cond}, cfg, results_swglt, fault_cfg.sensor_idx);
+                 cond, conditions{cond}, cfg, results_swglt, fault_cfg.sensor_idx, fig_dir);
+
+    %% Store results for comparison plots
+    results_all(cond).t = t;
+    results_all(cond).FD_glt = FD_glt;
+    results_all(cond).FD_wglt = FD_wglt;
+    results_all(cond).FD_swglt = FD_swglt;
+    results_all(cond).FD_raw = FD_raw;
+    results_all(cond).FI_raw = FI_raw;
+    results_all(cond).T_raw = T_raw;
+    results_all(cond).T_D = cfg.T_D;
+    results_all(cond).T_adaptive = T_adaptive;
+    results_all(cond).fault_mask = fault_mask;
+    results_all(cond).fault_intervals = fault_intervals;
+    results_all(cond).fault_cfg = fault_cfg;
+    results_all(cond).cond_title = conditions{cond};
+    results_all(cond).is_soft = is_soft;
+    results_all(cond).stats_raw = stats_raw;
+    results_all(cond).stats_glt = stats_glt;
+    results_all(cond).stats_wglt = stats_wglt;
+    results_all(cond).stats_swglt = stats_swglt;
 end
+
+%% ========================================================================
+%  Step 4: Generate comparison figures
+% =========================================================================
+fprintf('\n=== Step 4: Generating comparison figures ===\n');
+plot_comparison(results_all, cfg, fig_dir);
+
+%% Save all results
+save(fullfile(data_dir, 'simulation_results.mat'), 'results_all', 'cfg');
+fprintf('Saved simulation results to %s\n', fullfile(data_dir, 'simulation_results.mat'));
 
 fprintf('\n=== Simulation Complete ===\n');
 
