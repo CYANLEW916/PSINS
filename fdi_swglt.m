@@ -1,75 +1,139 @@
-function [FD, FI, T_adaptive] = fdi_swglt(Z, sigma_vec, cfg)
-% FDI_SWGLT  PPV-aided Sliding Window Weighted GLT for fault detection/isolation.
-%   [FD, FI, T_adaptive] = FDI_SWGLT(Z, sigma_vec, cfg) applies the full
-%   PPV-aided SWGLT algorithm combining weighted parity analysis, PCA-based
-%   denoising via sliding windows, and adaptive fault-tolerant thresholds.
-%
-%   Algorithm flow:
-%     1. Compute weighted parity vectors P_w for all time steps
-%     2. Sliding window of j=25 samples: apply PCA to get principal parity vector P_r
-%     3. Detection: FD = P_r' * P_r, compare against adaptive threshold T_df
-%     4. Isolation: FI(i) = P_r' * V_w(:,i) / (V_w(:,i)' * V_w(:,i))
+function results = fdi_swglt(Z, H, sigma_vec, cfg)
+% FDI_SWGLT  Sliding Window Whitened GLT with robust matched-filter isolation.
+%   results = FDI_SWGLT(Z, H, sigma_vec, cfg) computes detection/isolation
+%   statistics using sliding-window parity-mean tests and robust isolation
+%   logic (margin ratio, Bayesian posterior, and dwell confirmation).
 %
 %   Inputs:
-%     Z         - N x 9 measurement matrix
-%     sigma_vec - 1 x 9 noise standard deviation vector
-%     cfg       - configuration structure from config.m
+%     Z         - N x n measurement matrix
+%     H         - n x m configuration matrix
+%     sigma_vec - n x 1 or 1 x n sensor noise standard deviations
+%     cfg       - struct with j/window_length, K_tolerance, P_D_star,
+%                 N_dwell, rho_threshold, P_isol
 %
-%   Outputs:
-%     FD         - N x 1 detection function values
-%     FI         - N x 9 isolation function values
-%     T_adaptive - scalar adaptive detection threshold
+%   Output:
+%     results   - struct containing FD/FI curves, decisions, thresholds,
+%                 posteriors, and adaptive-threshold diagnostics
 %
-% See also  compute_parity_matrix, compute_ppv, compute_adaptive_threshold, config.
+% See also  compute_parity_matrix, compute_adaptive_threshold, fdi_wglt.
 
     [N, n] = size(Z);
-    H = cfg.H;
-    j = cfg.window_length;           % PCA window length (25)
-    pca_thresh = cfg.pca_threshold;  % cumulative variance ratio (0.85)
+    m = size(H, 2);
+    n_parity = n - m;
 
-    % Compute weighted parity matrix
-    [~, V_w, W_inv_half] = compute_parity_matrix(H, sigma_vec);
-    n_parity = size(V_w, 1);        % 6
+    if isfield(cfg, 'j')
+        j = cfg.j;
+    else
+        j = cfg.window_length;
+    end
 
-    % Compute adaptive threshold
-    T_adaptive = compute_adaptive_threshold(H, V_w, sigma_vec, cfg.K_tolerance);
+    [~, V_w, W, H_w] = compute_parity_matrix(H, sigma_vec);
+    VW = V_w * W;
 
-    % Pre-allocate
-    FD = zeros(N, 1);
+    [T_adapt, T_adapt_proj, diag_info] = compute_adaptive_threshold( ...
+        V_w, H_w, sigma_vec, cfg.K_tolerance, cfg.P_D_star, j);
+
+    c_tilde = V_w;
+    c_norm_sq = sum(c_tilde.^2, 1)';
+
+    P_tilde_all = (VW * Z')';
+
+    FD_energy = zeros(N, 1);
+    FD_max = zeros(N, 1);
     FI = zeros(N, n);
+    isolated = zeros(N, 1);
+    f_hat = zeros(N, 1);
+    iso_status = zeros(N, 1);
+    posterior = zeros(N, n);
 
-    % Step 1: compute all weighted parity vectors
-    P_w_all = zeros(n_parity, N);
-    for k = 1:N
-        z = Z(k, :)';
-        P_w_all(:, k) = V_w * W_inv_half * z;
-    end
+    buf = zeros(j, n_parity);
+    buf_sum = zeros(1, n_parity);
+    buf_idx = 0;
+    filled = 0;
 
-    % Step 2-6: sliding window PCA + detection + isolation
+    dwell_candidate = 0;
+    dwell_count = 0;
+
     for k = 1:N
-        if k < j
-            % Not enough samples for full window
-            if k < 3
-                % Too few for PCA, use raw parity vector
-                P_r = P_w_all(:, k);
-            else
-                P_buffer = P_w_all(:, 1:k);
-                P_r = compute_ppv(P_buffer, pca_thresh);
-            end
-        else
-            % Full window: [k-j+1, k]
-            P_buffer = P_w_all(:, (k-j+1):k);
-            P_r = compute_ppv(P_buffer, pca_thresh);
+        old_idx = mod(buf_idx, j) + 1;
+        if filled >= j
+            buf_sum = buf_sum - buf(old_idx, :);
+        end
+        buf(old_idx, :) = P_tilde_all(k, :);
+        buf_sum = buf_sum + P_tilde_all(k, :);
+        buf_idx = buf_idx + 1;
+        filled = min(filled + 1, j);
+
+        if filled < j
+            continue;
         end
 
-        % Step 3: detection function
-        FD(k) = P_r' * P_r;
+        P_bar = (buf_sum' / j);
+        FD_energy(k) = j * (P_bar' * P_bar);
 
-        % Step 6: isolation function
         for i = 1:n
-            Vi = V_w(:, i);   % i-th column of V_w
-            FI(k, i) = abs(P_r' * Vi) / (Vi' * Vi);
+            ci = c_tilde(:, i);
+            FI(k, i) = j * (ci' * P_bar)^2 / c_norm_sq(i);
+        end
+        FD_max(k) = max(FI(k, :));
+
+        if FD_energy(k) <= T_adapt
+            isolated(k) = 0;
+            iso_status(k) = 0;
+            dwell_candidate = 0;
+            dwell_count = 0;
+            continue;
+        end
+
+        [FI_sorted, sort_idx] = sort(FI(k, :), 'descend');
+        k_star = sort_idx(1);
+
+        if FI_sorted(2) > 0
+            rho = FI_sorted(1) / FI_sorted(2);
+        else
+            rho = Inf;
+        end
+
+        log_lik = FI(k, :) / 2;
+        log_lik_shifted = log_lik - max(log_lik);
+        exp_lik = exp(log_lik_shifted);
+        posterior(k, :) = exp_lik / sum(exp_lik);
+
+        if k_star == dwell_candidate
+            dwell_count = dwell_count + 1;
+        else
+            dwell_candidate = k_star;
+            dwell_count = 1;
+        end
+
+        margin_ok = (rho >= cfg.rho_threshold);
+        posterior_ok = (posterior(k, k_star) >= cfg.P_isol);
+        dwell_ok = (dwell_count >= cfg.N_dwell);
+
+        if margin_ok && posterior_ok && dwell_ok
+            isolated(k) = k_star;
+            iso_status(k) = 2;
+            ci_star = c_tilde(:, k_star);
+            f_hat(k) = sigma_vec(k_star) * (ci_star' * P_bar) / c_norm_sq(k_star);
+        elseif margin_ok && posterior_ok
+            isolated(k) = k_star;
+            iso_status(k) = 1;
+            ci_star = c_tilde(:, k_star);
+            f_hat(k) = sigma_vec(k_star) * (ci_star' * P_bar) / c_norm_sq(k_star);
+        else
+            isolated(k) = -1;
+            iso_status(k) = 1;
         end
     end
 
+    results.FD_energy = FD_energy;
+    results.FD_max = FD_max;
+    results.FI = FI;
+    results.isolated = isolated;
+    results.f_hat = f_hat;
+    results.iso_status = iso_status;
+    results.posterior = posterior;
+    results.T_adaptive = T_adapt;
+    results.T_adaptive_proj = T_adapt_proj;
+    results.diagnostics = diag_info;
 end

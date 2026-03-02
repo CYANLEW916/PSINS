@@ -3,7 +3,7 @@ function [FD, FI, V_w] = fdi_wglt(Z, sigma_vec, cfg)
 %   [FD, FI, V_w] = FDI_WGLT(Z, sigma_vec, cfg) applies the weighted GLT
 %   that handles heterogeneous sensor noise by pre-whitening measurements.
 %
-%   Detection:  P_w = V_w * W^{-1/2} * Z,  FD = P_w' * P_w
+%   Detection:  P_w = V_w * W * Z,  FD = P_w' * P_w
 %   Isolation:  FI(i) = (P_w'*V_w(:,i))^2 / (V_w(:,i)'*V_w(:,i))
 %   Threshold:  T_D = chi2inv(1-PFA, n-m) ≈ 16.81  (same as GLT)
 %
@@ -23,7 +23,7 @@ function [FD, FI, V_w] = fdi_wglt(Z, sigma_vec, cfg)
     H = cfg.H;
 
     % Compute weighted parity matrix
-    [~, V_w, W_inv_half] = compute_parity_matrix(H, sigma_vec);
+    [~, V_w, W, ~] = compute_parity_matrix(H, sigma_vec);
 
     % Pre-allocate
     FD = zeros(N, 1);
@@ -32,8 +32,8 @@ function [FD, FI, V_w] = fdi_wglt(Z, sigma_vec, cfg)
     for k = 1:N
         z = Z(k, :)';                 % 9x1
 
-        % Weighted parity vector: P_w = V_w * W^{-1/2} * z
-        P_w = V_w * W_inv_half * z;   % 6x1
+        % Weighted parity vector: P_w = V_w * W * z
+        P_w = V_w * W * z;   % 6x1
 
         % Detection function (already normalized by weighting)
         FD(k) = P_w' * P_w;
