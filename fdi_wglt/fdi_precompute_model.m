@@ -23,7 +23,9 @@ function model = fdi_precompute_model(R, H, K, PdStar, j)
     W = L \ eye(n);
     Ht = W * H;
 
-    [U, ~, ~] = svd(Ht, 'full');
+    % Use default full SVD for broad MATLAB compatibility.
+    % ('full' is not a valid option in older MATLAB releases.)
+    [U, ~, ~] = svd(Ht);
     Vt = U(:, m + 1:end)';
 
     sigma = sqrt(diag(R));
